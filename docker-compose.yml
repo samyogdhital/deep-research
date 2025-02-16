@@ -1,0 +1,181 @@
+name: Deep-Research-Agent
+
+x-common-service: &common-service
+  build: firecrawl/apps/api
+  ulimits:
+    nofile:
+      soft: 65535
+      hard: 65535
+  networks:
+    - backend
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  playwright-service:
+    container_name: playwright-service
+    build: firecrawl/apps/playwright-service
+    environment:
+      - PORT=3000
+      - PROXY_SERVER=${PROXY_SERVER}
+      - PROXY_USERNAME=${PROXY_USERNAME}
+      - PROXY_PASSWORD=${PROXY_PASSWORD}
+      - BLOCK_MEDIA=${BLOCK_MEDIA}
+    networks:
+      - backend
+
+  api:
+    <<: *common-service
+    container_name: firecrawl-api
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://firecrawl-redis:6379}
+      REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://firecrawl-redis:6379}
+      PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
+      USE_DB_AUTHENTICATION: ${USE_DB_AUTHENTICATION}
+      PORT: ${PORT:-3002}
+      NUM_WORKERS_PER_QUEUE: ${NUM_WORKERS_PER_QUEUE}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      MODEL_NAME: ${MODEL_NAME:-gpt-4o}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      LLAMAPARSE_API_KEY: ${LLAMAPARSE_API_KEY}
+      LOGTAIL_KEY: ${LOGTAIL_KEY}
+      BULL_AUTH_KEY: ${BULL_AUTH_KEY}
+      TEST_API_KEY: ${TEST_API_KEY}
+      POSTHOG_API_KEY: ${POSTHOG_API_KEY}
+      POSTHOG_HOST: ${POSTHOG_HOST}
+      SUPABASE_ANON_TOKEN: ${SUPABASE_ANON_TOKEN}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_TOKEN: ${SUPABASE_SERVICE_TOKEN}
+      SCRAPING_BEE_API_KEY: ${SCRAPING_BEE_API_KEY}
+      HOST: ${HOST:-0.0.0.0}
+      SELF_HOSTED_WEBHOOK_URL: ${SELF_HOSTED_WEBHOOK_URL}
+      SERPER_API_KEY: ${SERPER_API_KEY}
+      SEARCHAPI_API_KEY: ${SEARCHAPI_API_KEY}
+      LOGGING_LEVEL: ${LOGGING_LEVEL}
+      FLY_PROCESS_GROUP: app
+    depends_on:
+      - redis
+      - playwright-service
+    ports:
+      - "3002:3002"
+    command: [ "pnpm", "run", "start:production" ]
+
+  worker:
+    <<: *common-service
+    container_name: firecrawl-worker
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://firecrawl-redis:6379}
+      REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://firecrawl-redis:6379}
+      PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
+      USE_DB_AUTHENTICATION: ${USE_DB_AUTHENTICATION}
+      PORT: ${PORT:-3002}
+      NUM_WORKERS_PER_QUEUE: ${NUM_WORKERS_PER_QUEUE}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      MODEL_NAME: ${MODEL_NAME:-gpt-4o}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      LLAMAPARSE_API_KEY: ${LLAMAPARSE_API_KEY}
+      LOGTAIL_KEY: ${LOGTAIL_KEY}
+      BULL_AUTH_KEY: ${BULL_AUTH_KEY}
+      TEST_API_KEY: ${TEST_API_KEY}
+      POSTHOG_API_KEY: ${POSTHOG_API_KEY}
+      POSTHOG_HOST: ${POSTHOG_HOST}
+      SUPABASE_ANON_TOKEN: ${SUPABASE_ANON_TOKEN}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_TOKEN: ${SUPABASE_SERVICE_TOKEN}
+      SCRAPING_BEE_API_KEY: ${SCRAPING_BEE_API_KEY}
+      HOST: ${HOST:-0.0.0.0}
+      SELF_HOSTED_WEBHOOK_URL: ${SELF_HOSTED_WEBHOOK_URL}
+      LOGGING_LEVEL: ${LOGGING_LEVEL}
+      FLY_PROCESS_GROUP: worker
+    depends_on:
+      - redis
+      - playwright-service
+      - api
+    command: [ "pnpm", "run", "workers" ]
+
+  redis:
+    container_name: firecrawl-redis
+    image: redis:alpine
+    networks:
+      - backend
+    command: redis-server --bind 0.0.0.0
+
+
+# --------------- Searxng
+  searxng:
+    container_name: searxng
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    networks:
+      - searxng
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=https://${SEARXNG_HOSTNAME:-localhost}/
+      - UWSGI_WORKERS=${SEARXNG_UWSGI_WORKERS:-4}
+      - UWSGI_THREADS=${SEARXNG_UWSGI_THREADS:-4}
+    # cap_drop:
+    #   - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+  tor:
+    container_name: tor
+    image: dperson/torproxy:latest
+    restart: unless-stopped
+    networks:
+      - searxng
+    ports:
+      - "9050:9050"
+    # The default command exposes the SOCKS5 proxy on port 9050.
+    command: -p 9050
+    # cap_drop:
+    #   - ALL
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+# --------------- Crawlrouter
+  crawlrouter:
+    container_name: crawlrouter
+    build: https://github.com/loorisr/crawlrouter.git
+    ports:
+      - "8000:8000"
+    environment:
+      - SCRAPE_BACKEND=firecrawl
+      - SEARCH_BACKEND=searxng
+      - FIRECRAWL_SCRAPE_ENDPOINT=http://host.docker.internal:3002/v1/scrape
+      - FIRECRAWL_API_KEY=""
+      - SEARXNG_ENDPOINT=http://host.docker.internal:8080
+      - FIRECRAWL_TIMEOUT=30
+      - CRAWL4AI_TIMEOUT=30
+      - HTTP_TIMEOUT=30
+    security_opt:
+      - no-new-privileges=true
+    read_only: true
+    restart: unless-stopped
+
+# --------------- Deep Research
+  deep-research:
+    container_name: deep-research
+    build: .
+    env_file:
+      - ./deep-research/.env.local
+    tty: true
+    stdin_open: true
+
+
+networks:
+  backend:
+    driver: bridge
+  searxng:

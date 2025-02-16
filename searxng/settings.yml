@@ -1,0 +1,27 @@
+# see https://docs.searxng.org/admin/settings/settings.html#settings-use-default-settings
+use_default_settings: true
+server:
+  # base_url is defined in the SEARXNG_BASE_URL environment variable, see .env and docker-compose.yml
+  secret_key: "e7adc5cf0be9d52877a0511ea7f1158fabfe9794a2431305d804270021f43e8f"  # change this!
+  limiter: false  # can be disabled for a private instance
+  image_proxy: true
+ui:
+  static_use_hash: true
+
+outgoing:
+  using_tor_proxy: true
+  request_timeout: 5.0  # default is 3 seconds
+  proxies:
+    all://:
+      - socks5h://tor:9050
+
+engines:
+  - name: soundcloud
+    engine: soundcloud
+    disabled: true
+
+
+search:
+  formats:
+    - html
+    - json
