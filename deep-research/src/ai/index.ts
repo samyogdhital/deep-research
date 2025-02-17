@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { modelProvider } from './providers';
+import { GeminiModelType } from '../feedback';
 
 export type GenerateObjectParams<T extends z.ZodType> = {
   system: string;
   prompt: string;
   schema: T;
   abortSignal?: AbortSignal;
-  model?: any; 
+  model?: GeminiModelType; 
   provider?: any; 
 };
 

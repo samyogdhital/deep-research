@@ -69,7 +69,7 @@ class GeminiProvider implements AIProvider {
   }
 
   private createModel() {
-    const apiKey = this.apiKeys[this.currentKeyIndex];
+    const apiKey = this.apiKeys[this.currentKeyIndex] as string;
     const googleAI = new GoogleGenerativeAI(apiKey);
     return googleAI.getGenerativeModel({
       model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-thinking-exp-01-21',
@@ -262,7 +262,7 @@ class ModelProvider {
         process.env.GOOGLE_API_KEY_3,
         process.env.GOOGLE_API_KEY_4,
         process.env.GOOGLE_API_KEY_5,
-      ].filter(Boolean);
+      ].filter(Boolean) as string[];
       if (apiKeys.length === 0) {
         throw new Error('At least one GOOGLE_API_KEY environment variable is required for Gemini');
       }

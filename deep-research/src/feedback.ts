@@ -2,6 +2,8 @@ import { generateObject } from './ai';
 import { z } from 'zod';
 import { systemPrompt } from './prompt';
 
+export type GeminiModelType = 'gemini-2.0-flash' | "gemini-2.0-pro-exp-02-05" | "gemini-2.0-flash-thinking-exp-01-21"
+
 export async function generateFeedback({
   query,
   numQuestions = 5,
@@ -9,7 +11,7 @@ export async function generateFeedback({
 }: {
   query: string;
   numQuestions?: number;
-  model: 'gemini-2.0-flash' | "gemini-2.0-pro-exp-02-05" | "gemini-2.0-flash-thinking-exp-01-21"
+  model: GeminiModelType
 }) {
   const userFeedback = await generateObject({
     system: systemPrompt(),
@@ -21,6 +23,7 @@ export async function generateFeedback({
           `Follow up questions to clarify the research direction, max of ${numQuestions}`,
         ),
     }),
+    model:"gemini-2.0-flash"
   });
 
   return userFeedback.object.questions.slice(0, numQuestions);

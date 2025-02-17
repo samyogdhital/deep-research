@@ -85,6 +85,7 @@ async function generateSerpQueries({
         )
         .describe(`List of SERP queries, max of ${numQueries}`),
     }),
+    provider: { id: 'gemini-2.0-flash' }   // <-- use Gemini 2.0 flash model for SERP queries
   });
   log(
     `Created ${res.object.queries.length} queries`,
@@ -126,6 +127,7 @@ async function processSerpResult({
           `List of follow-up questions to research the topic further, max of ${numFollowUpQuestions}`,
         ),
     }),
+    provider: { id: 'gemini-2.0-flash' }   // <-- use Gemini 2.0 pro model for follow-up questions
   });
   log(
     `Created ${res.object.learnings.length} learnings`,
@@ -159,6 +161,7 @@ export async function writeFinalReport({
         .string()
         .describe('Final report on the topic in Markdown'),
     }),
+    provider: { id: 'gemini-2.0-flash-thinking-exp-01-21' }   // <-- use Gemini 2.0 flash thinking for report writing
   });
 
   // Append the visited URLs section to the report

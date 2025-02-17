@@ -27,22 +27,9 @@ function askQuestion(query: string): Promise<string> {
   });
 }
 
-// run the agent
+// Main code here. Run the agent
 async function run() {
-  // const modelChoice = await askQuestion(
-  //   'Select AI model (1 for OpenAI, 2 for Gemini, default 1): ',
-  // );
-  
   modelProvider.setProvider('gemini');
-  
-
-  // if (modelChoice === '2') {
-  //   modelProvider.setProvider('gemini');
-  // } else {
-  //   modelProvider.setProvider('openai');
-  // }
-
-  // Get initial query
   const initialQuery = await askQuestion('What would you like to research? ');
 
   // Get breath and depth parameters
