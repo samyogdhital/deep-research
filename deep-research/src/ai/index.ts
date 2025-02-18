@@ -8,7 +8,7 @@ export type GenerateObjectParams<T extends z.ZodType> = {
   schema: T;
   abortSignal?: AbortSignal;
   model?: GeminiModelType; 
-  provider?: any; 
+  provider?: "gemini-2.0-flash-lite-preview-02-05" | "gemini-2.0-flash"| "gemini-2.0-flash-thinking-exp-01-21" ; 
 };
 
 export async function generateObject<T extends z.ZodType>(
@@ -16,7 +16,7 @@ export async function generateObject<T extends z.ZodType>(
 ): Promise<{ object: z.infer<T> }> {
   const enhancedParams = {
     ...params,
-    provider: params.provider || { id: 'openai' },
+    provider: params.provider,
   };
   return modelProvider.getCurrentProvider().generateObject(enhancedParams);
 }

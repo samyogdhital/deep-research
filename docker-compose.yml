@@ -106,8 +106,7 @@ services:
 # --------------- Searxng
   searxng:
     container_name: searxng
-    image: docker.io/searxng/searxng:latest
-    restart: unless-stopped
+    image: searxng/searxng:latest
     networks:
       - searxng
     ports:
@@ -118,30 +117,22 @@ services:
       - SEARXNG_BASE_URL=http://${SEARXNG_HOSTNAME:-localhost}/
       - UWSGI_WORKERS=${SEARXNG_UWSGI_WORKERS:-4}
       - UWSGI_THREADS=${SEARXNG_UWSGI_THREADS:-4}
-    # cap_drop:
-    #   - ALL
+    cap_drop:
+      - ALL
     cap_add:
       - CHOWN
       - SETGID
       - SETUID
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1m"
-        max-file: "1"
 
   tor:
     container_name: tor
     image: dperson/torproxy:latest
-    restart: unless-stopped
     networks:
       - searxng
     ports:
       - "9050:9050"
     # The default command exposes the SOCKS5 proxy on port 9050.
     command: -p 9050
-    # cap_drop:
-    #   - ALL
     extra_hosts:
     - "host.docker.internal:host-gateway"
 
@@ -157,13 +148,23 @@ services:
       - FIRECRAWL_SCRAPE_ENDPOINT=http://host.docker.internal:3002/v1/scrape
       - FIRECRAWL_API_KEY=""
       - SEARXNG_ENDPOINT=http://host.docker.internal:8080
-      - FIRECRAWL_TIMEOUT=30
-      - CRAWL4AI_TIMEOUT=30
-      - HTTP_TIMEOUT=30
+      # - CRAWL4AI_ENDPOINT=http://host.docker.internal:11235
+      - FIRECRAWL_TIMEOUT=30000
+      - CRAWL4AI_TIMEOUT=30000
+      - HTTP_TIMEOUT=30000
     security_opt:
       - no-new-privileges=true
     read_only: true
-    restart: unless-stopped
+
+# --------------- Crawl4ai
+  # crawl4ai:
+  #   container_name: crawl4ai
+  #   image: unclecode/crawl4ai:all
+  #   ports:
+  #     - "11235:11235"
+    # environment:
+      # - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}  # Optional
+
 
 # --------------- Deep Research
   # deep-research:
