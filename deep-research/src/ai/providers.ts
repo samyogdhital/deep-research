@@ -1,14 +1,18 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { z } from 'zod';
+import { GenerateContentResult, GenerativeModel, GoogleGenerativeAI, ModelParams } from '@google/generative-ai';
 
-export interface AIProvider {
-  generateObject<T extends z.ZodType>(params: {
-    system: string;
-    prompt: string;
-    schema: T;
-    model?: string;
-  }): Promise<{ object: z.infer<T> }>;
+
+
+export interface GenerateObjectParams extends ModelParams {
+  system: string;
+  prompt: string;
 }
+// Signature for some class to implement
+export interface AIProvider {
+  generateObject(params: GenerateObjectParams
+  ): Promise<GenerateContentResult>;
+}
+
+
 
 class GeminiProvider implements AIProvider {
   private apiKeys: string[];
@@ -43,43 +47,28 @@ class GeminiProvider implements AIProvider {
     return this.getNextAvailableKey();
   }
 
-  async generateObject<T extends z.ZodType>(params: {
-    system: string;
-    prompt: string;
-    schema: T;
-    model?: string;
-  }): Promise<{ object: z.infer<T> }> {
+  // TODO: have return type here.
+  async generateObject(params: GenerateObjectParams): Promise<GenerateContentResult> {
     const apiKey = await this.getNextAvailableKey();
-    const googleAI = new GoogleGenerativeAI(apiKey);
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     try {
-      const model = googleAI.getGenerativeModel({
-        model: params.model || 'gemini-2.0-flash',
+      // console.log('Using schema:', JSON.stringify(params.generationConfig?.responseSchema, null, 2));
+
+      const model = genAI.getGenerativeModel({
+        ...params,
+        model: params.model || "gemini-2.0-flash",
+        generationConfig: {
+          ...params.generationConfig,
+          responseMimeType: "application/json",
+        }
       });
 
-      const structuredPrompt = `${params.system}
-
-IMPORTANT: You MUST return ONLY a raw JSON object matching this schema, with NO markdown formatting, NO \`\`\` code blocks, and NO explanations:
-
-${JSON.stringify(params.schema.shape, null, 2)}
-
-Your task:
-${params.prompt}`;
-
-      const result = await model.generateContent(structuredPrompt);
-      const response = result.response.text();
-
-      // Remove any markdown code block wrapping if present
-      const cleanJson = response.replace(/^```(?:json)?\n|\n```$/g, '').trim();
-
-      try {
-        const object = JSON.parse(cleanJson);
-        return { object: params.schema.parse(object) };
-      } catch (parseError) {
-        console.error('Raw response:', response);
-        console.error('Cleaned response:', cleanJson);
-        throw parseError;
-      }
+      const result = await model.generateContent(`${params.system}\n\n${params.prompt}`);
+      // const response = result.response.text();
+      // console.log("🚀🚀🚀🚀🚀", text, "✅✅✅", { object: JSON.parse(text) })
+      // return { object: JSON.parse(text) };
+      return result
 
     } catch (error: any) {
       if (error.message?.includes('429')) {
@@ -119,4 +108,8 @@ class ModelProvider {
   }
 }
 
-export const modelProvider = ModelProvider.getInstance();
+const provider = ModelProvider.getInstance().getCurrentProvider();
+export const generateObject = (params: GenerateObjectParams) => provider.generateObject(params);
+
+
+// export const generateObject = ModelProvider.getInstance().getCurrentProvider().generateObject;

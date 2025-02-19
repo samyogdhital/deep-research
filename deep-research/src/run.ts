@@ -15,35 +15,35 @@ async function run() {
     log("Starting research process...");
 
     // 1. Default values for testing
-    const initialQuery = "Space based manufacturing?";
-    const breadth = 2;
-    const depth = 2;
+    const initialQuery = "Elon musk new role in DOGE";
+    const breadth = 3;
+    const depth = 1;
 
     log("Generating follow-up questions...");
 
     // 2. Generate follow-up questions
-    const followUpQuestions = await generateFeedback({
-      query: initialQuery,
-      numQuestions: 5,
-      model: 'gemini-2.0-flash'
-    }).catch(error => {
-      log("Error generating feedback:", error);
-      throw error;
-    });
+    // const followUpQuestions = await generateFeedback({
+    //   query: initialQuery,
+    //   numQuestions: 1,
+    //   model: 'gemini-2.0-flash'
+    // }).catch(error => {
+    //   log("Error generating feedback:", error);
+    //   throw error;
+    // });
 
-    // 3. Hardcoded answers for testing
-    const questionAnswers = followUpQuestions.map(q => ({
-      question: q,
-      answer: "Sample answer for testing" // In production, get from user input
-    }));
+    // // 3. Hardcoded answers for testing
+    // const questionAnswers = followUpQuestions.map(q => ({
+    //   question: q,
+    //   answer: "Sample answer for testing" // In production, get from user input
+    // }));
 
     // 4. Combine for context
     const fullResearchContext = `
-Initial Query: ${initialQuery}
+Initial Query: ${initialQuery}`
 
-Follow-up Questions and Answers:
-${questionAnswers.map(qa => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')}
-`;
+    // Follow-up Questions and Answers:
+    // ${questionAnswers.map(qa => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')}
+    // `;
 
     // 5. Start research
     // Still use onProgress for logging purposes
@@ -62,6 +62,8 @@ ${questionAnswers.map(qa => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')}
       learnings: result.learnings,
       visitedUrls: result.visitedUrls
     });
+
+    log("Generated Report", report)
 
     // Save outputs
     await fs.writeFile('output.md', report);

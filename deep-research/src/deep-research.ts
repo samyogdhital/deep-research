@@ -1,30 +1,10 @@
-//TODO: Hit searxng api here directly and do not even run firecrawl for search
-//  const result: {results:{title:string; url: string; content:string}[]} = await fetch(`http://docker.host.internal:8080?q=${serpQuery.query}&format=json`).then(res=>res.json())
-
-// Remove this below firecrawl.search(...)... that is there below. Do not do through that package. Do directly through above api key. This abvoe api key gives the response to teh query in this typescript foramt {results:{title:string; url: string; content:string}[]}; So from here we are getting url and content. From content we can analyze if this website(url) has the information we need or not. When analyzing the array of response we get from the query by searxng, we analyze the content for each and only consider the url that actually highly relevent to the query the user need. Now this filtered list of websites we have, we call this below api from firecrawl.
-// const options = {
-//   method: 'POST',
-//   headers: {Authorization: 'Bearer <token>', 'Content-Type': 'application/json'},
-//   body: '{"formats":["markdown"]}'
-// };
-
-// fetch('https://api.firecrawl.dev/v1/scrape', options)
-//   .then(response => response.json())
-//   .then(response => console.log(response))
-//   .catch(err => console.error(err));
-
-// After we do that we get the data from the website in markdown format for each of these websites. We then consider that for the end report. Keep in mind we do not consider the response from searxng to write report, that one is only for selecting the right website to fetch actual content from.
-
-
-
-// import FirecrawlApp, { SearchResponse } from '@mendable/firecrawl-js';
-import { compact } from 'lodash-es';
 // import pLimit from 'p-limit';
 import { z } from 'zod';
+import { SchemaType } from '@google/generative-ai';
 
-import { generateObject, trimPrompt } from './ai';
 import { systemPrompt } from './prompt';
 import { OutputManager } from './output-manager';
+import { generateObject } from './ai/providers';
 
 // Initialize output manager for coordinated console/progress output
 const output = new OutputManager();
@@ -34,122 +14,103 @@ function log(...args: any[]) {
   output.log(...args);
 }
 
-
-
 // increase this if you have higher API rate limits
 const ConcurrencyLimit = 1;
 
-// Initialize Firecrawl with optional API key and optional base url
 
-// const firecrawl = new FirecrawlApp({
-//   apiKey: process.env.FIRECRAWL_KEY ?? '',
-//   apiUrl: process.env.FIRECRAWL_BASE_URL,
-// });
+// Update generateQueriesWithObjectives to use SchemaType
+async function generateQueriesWithObjectives(context: string, numQueries: number): Promise<QueryWithObjective[]> {
+  const schema = {
+    type: SchemaType.OBJECT,
+    properties: {
+      queries: {
+        type: SchemaType.ARRAY,
+        items: {
+          type: SchemaType.OBJECT,
+          properties: {
+            query: {
+              type: SchemaType.STRING,
+              description: "Very specific keyword to do serp query highly related to user's prompt."
+            },
+            objective: {
+              type: SchemaType.STRING,
+              description: "The highly detailed objective of of this query that we generated for websites analyzing agent to scrape on and analyze whether this objective is met through that website content or not."
+            }
+          },
+          required: ["query", "objective"]
+        },
+        minItems: 1,
+        maxItems: numQueries
+      }
+    },
+    required: ["queries"]
+  };
 
-// take en user query, return a list of SERP queries
-async function generateSerpQueries({
-  query_to_find_websites,
-  numQueries = 2,
-  previous_learnings_we_have,
-}: {
-  query_to_find_websites: string;
-  numQueries?: number;
-
-  // optional, if provided, the research will continue from the last learning
-  previous_learnings_we_have?: string[];
-}) {
-  const { object } = await generateObject({
+  const { response } = await generateObject({
     system: systemPrompt(),
-    prompt: `Given the following prompt from the user, generate a list of SERP queries to research the topic. Return a maximum of ${numQueries} queries, but feel free to return less if the original prompt is clear. Make sure each query is unique and not similar to each other: <prompt>${query_to_find_websites}</prompt>\n\n${previous_learnings_we_have
-      ? `Here are some learnings from previous research, use them to generate more specific queries: ${previous_learnings_we_have.join(
-        '\n',
-      )}`
-      : ''
-      }`,
-    schema: z.object({
-      queries: z
-        .array(
-          z.object({
-            query: z.string().describe('The SERP query'),
-            researchGoal: z
-              .string()
-              .describe(
-                'First talk about the goal of the research that this query is meant to accomplish, then go deeper into how to advance the research once the results are found, mention additional research directions. Be as specific as possible, especially for additional research directions.',
-              ),
-          }),
-        )
-        .describe(`List of SERP queries, max of ${numQueries}`),
-    }),
-    provider: 'gemini-2.0-flash'    // <-- use Gemini 2.0 flash model for SERP queries
-  });
-  log(
-    `Created ${object.queries.length} queries`,
-    object.queries,
-  );
+    prompt: `Given this research context, generate strategic search queries to find detailed information.
 
-  return object.queries.slice(0, numQueries);
+CONTEXT:
+${context}
+
+REQUIREMENTS:
+1. Generate ${numQueries} different search queries
+2. Each query should target a specific aspect
+4. Focus on high-quality sources (academic, industry reports)
+
+For each query:
+- Make it specific and targeted and short query.
+- Include an objective explaining what information we want to find.
+- Follow the schema for structured json output.
+`,
+    model: 'gemini-2.0-flash',
+    generationConfig: {
+      responseSchema: schema
+    }
+  });
+
+  const query_objectives: { queries: QueryWithObjective[] } = JSON.parse(response.text())
+
+  return query_objectives.queries
 }
 
-// Add URL validation helper
-// function isValidUrl(urlString: string): boolean {
-//   try {
-//     new URL(urlString);
-//     return true;
-//   } catch {
-//     return false;
-//   }
-// }
+async function searchSerpResults(query: string): Promise<SearxResult[]> {
+  try {
+    // Improved query formatting
+    // const formattedQuery = encodeURIComponent(query)
+    //   .replace(/%20OR%20/g, ' OR ')
+    //   .replace(/%22/g, '"');
 
-// async function analyzeRelevance(results: SerpResult[], researchGoal: string) {
-//   const prompt = `Task: Analyze search results and rate their relevance to our research goal.
+    const response = await fetch(
+      `http://localhost:8080/search?q=${query}&format=json&language=en&time_range=year&safesearch=0`,
+      {
+        method: "GET",
+        headers: {
+          'Accept': 'application/json'
+        }
+      }
+    );
 
-// Research Goal: "${researchGoal}"
+    if (!response.ok) {
+      throw new Error(`Search failed with status ${response.status}`);
+    }
 
-// Format each result as:
-// {
-//   "url": "website-url",
-//   "relevanceScore": 0.0-1.0,
-//   "reason": "Brief explanation of relevance"
-// }
+    const data: SearxResponse = await response.json();
+    log(`Search found ${data.results?.length || 0} results for query: ${query}`);
 
-// Search Results:
-// ${results.slice(0, 2).map((r, i) => 
-//   `Result ${i + 1}:
-//   Title: ${r.title}
-//   URL: ${r.url}
-//   Preview: ${r.content?.substring(0, 200)}...`
-// ).join('\n\n')}`;
+    if (!data.results?.length) {
+      log('Warning: No search results found');
+      return [];
+    }
 
-
-//   try {
-//     const {object} = await generateObject({
-//       system: systemPrompt(),
-//       prompt,
-//       schema: z.object({
-//         relevantUrls: z.array(z.object({
-//           url: z.string(),
-//           relevanceScore: z.number().min(0).max(1),
-//           reason: z.string()
-//         }))
-//       }),
-//       provider: { id: 'gemini-2.0-flash' }
-//     });
-
-//     return object.relevantUrls
-//       .filter(r => r.relevanceScore > 0.7 && isValidUrl(r.url))
-//       .map(r => {
-//         log(`Selected ${r.url} (Score: ${r.relevanceScore}): ${r.reason}`);
-//         return r.url;
-//       });
-//   } catch (error) {
-//     log('Error analyzing relevance:', error);
-//     // Return subset of original URLs as fallback
-//     return results
-//       .slice(0, 3)
-//       .map(r => r.url)
-//       .filter(isValidUrl);
-//   }
-// }
+    // Take more results for better coverage
+    // return data.results.slice(0, 5);  // Get top 5 results instead of just 1
+    return data.results
+  } catch (error) {
+    log('Error during search:', error);
+    return [];
+  }
+}
 
 async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
   if (!urls.length) {
@@ -204,64 +165,72 @@ async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
   return validResults;
 }
 
-// Add new types for source tracking
-interface TrackedLearning {
-  content: string;
-  sourceUrl: string;
-  sourceText: string;  // Original text snippet that led to this learning
-}
+// Update analyzeWebsiteContent to use SchemaType
+async function analyzeWebsiteContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
+  try {
+    const schema = {
+      type: SchemaType.OBJECT,
+      properties: {
+        analysis: {
+          type: SchemaType.OBJECT,
+          properties: {
+            isRelevant: {
+              type: SchemaType.BOOLEAN,
+              description: "Whether content directly addresses our objective"
+            },
+            extractedInfo: {
+              type: SchemaType.STRING,
+              description: "Concise, factual summary of relevant findings"
+            },
+            supportingQuote: {
+              type: SchemaType.STRING,
+              description: "Direct quote that validates the findings"
+            }
+          },
+          required: ["isRelevant", "extractedInfo", "supportingQuote"]
+        }
+      },
+      required: ["analysis"]
+    };
 
-type ProcessedResult = {
-  learnings: TrackedLearning[];
-  followUpQuestions: string[];
-};
+    const { response } = await generateObject({
+      system: systemPrompt(),
+      prompt: `Analyze if this content matches our objective:
 
-type ResearchResult = {
-  learnings: TrackedLearning[];
-  visitedUrls: string[];
-};
+OBJECTIVE: ${objective}
 
-// Update processSerpResult
-async function processSerpResult({
-  already_scraped_single_query,
-  websiteScrapedContents,
-  numLearnings = 3,
-  numFollowUpQuestions = 3,
-}: {
-  already_scraped_single_query: string;
-  websiteScrapedContents: ScrapedContent[];
-  numLearnings?: number;
-  numFollowUpQuestions?: number;
-}): Promise<ProcessedResult> {
+CONTENT:
+${content.markdown}
 
-  const { object } = await generateObject({
-    abortSignal: AbortSignal.timeout(60_000),
-    system: systemPrompt(),
-    prompt: `Analyze these scraped contents and generate learnings with their sources.
-    
-For each learning, specify:
-1. The learning itself
-2. The exact quote/text from the source that supports this learning
-3. The source URL
+Return:
+1. isRelevant: true only if content directly addresses objective
+2. extractedInfo: key findings if relevant
+3. supportingQuote: direct quote supporting findings`,
 
-Query: ${already_scraped_single_query}
+      model: 'gemini-2.0-flash-lite-preview-02-05',
+      generationConfig: {
+        responseSchema: schema
+      }
+    });
 
-Contents:
-${websiteScrapedContents.map(content =>
-      `URL: ${content.url}\nContent:\n${content.markdown}\n---\n`
-    ).join('\n')}`,
-    schema: z.object({
-      learnings: z.array(z.object({
-        content: z.string().describe('The learning/insight itself'),
-        sourceUrl: z.string().describe('URL where this information was found'),
-        sourceText: z.string().describe('Exact quote or text snippet that supports this learning')
-      })),
-      followUpQuestions: z.array(z.string())
-    }),
-    provider: 'gemini-2.0-flash'
-  });
 
-  return object;
+    const websiteSummary: { isRelevant: boolean; extractedInfo: string, supportingQuote: string } = JSON.parse(response.text())
+
+    if (!websiteSummary.isRelevant) {
+      return null;
+    }
+
+    return {
+      content: websiteSummary.extractedInfo,
+      sourceUrl: content.url,
+      sourceText: websiteSummary.supportingQuote,
+      meetsObjective: true
+    };
+
+  } catch (error) {
+    log(`Error analyzing content from ${content.url}:`, error);
+    return null;
+  }
 }
 
 export async function writeFinalReport({
@@ -273,155 +242,45 @@ export async function writeFinalReport({
   learnings: TrackedLearning[];
   visitedUrls: string[];
 }) {
-  const learningsString = trimPrompt(
-    learnings.map(learning =>
-      `<learning>
-        <content>${learning.content}</content>
-        <source_url>${learning.sourceUrl}</source_url>
-        <source_text>${learning.sourceText}</source_text>
-      </learning>`
-    ).join('\n'),
-    150_000,
-  );
+  const learningsString = learnings.map(learning =>
+    `<learning>
+      <content>${learning.content}</content>
+      <source_url>${learning.sourceUrl}</source_url>
+      <source_text>${learning.sourceText}</source_text>
+    </learning>`
+  ).join('\n');
 
-  const res = await generateObject({
-    system: systemPrompt(),
-    prompt: `Write a comprehensive research report on the following topic. For each claim or information you include, cite the source using the provided source text and URL.
+  try {
+    const schema = {
+      type: SchemaType.STRING,
+      description: "Markdown formatted research report"
+    };
 
-User query: ${prompt}
+    const { response } = await generateObject({
+      system: systemPrompt(),
+      prompt: `Write a detailed research report addressing this query: "${prompt}"
 
 Research findings:
 ${learningsString}
 
-Guidelines:
-- Include citations for every fact/claim using [Source: URL]
-- When citing, include relevant quotes from source_text
-- Organize into clear sections with proper citations
-- Maintain academic writing style
-- Use markdown formatting`,
-    schema: z.object({
-      reportMarkdown: z.string()
-    }),
-    provider: 'gemini-2.0-flash-thinking-exp-01-21'
-  });
+IMPORTANT:
+- Return ONLY the markdown report text as a plain string.
+- Do NOT include any markdown code fences, metadata, or explanations.
+- Ensure every fact is cited as [Source: URL].
+- And in the end there should be the list of all websites that you considered to write this report.
 
-  return res.object.reportMarkdown;
-}
-
-async function searchSerpResults(query: string): Promise<SearxResult[]> {
-  try {
-    // Fix: Use docker host internal URL and correct endpoint
-    const response = await fetch(
-      `http://localhost:8080/search?q=${encodeURIComponent(query)}&format=json`,
-      {
-        method: "GET",  // Changed to GET
-        headers: {
-          'Accept': 'application/json'
-        }
+Use clear sections and proper markdown formatting.`,
+      model: 'gemini-2.0-flash',
+      generationConfig: {
+        responseSchema: schema
       }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Search failed with status ${response.status}`);
-    }
-
-    const data: SearxResponse = await response.json();
-    log(`Search found ${data.results?.length || 0} results for query: ${query}`);
-
-    if (!data.results?.length) {
-      log('Warning: No search results found');
-      return [];
-    }
-
-    // Log first result for debugging
-    if (data.results[0]) {
-      log('First result sample:', {
-        title: data.results[0].title,
-        url: data.results[0].url.substring(0, 100),
-        contentPreview: data.results[0].content.substring(0, 100)
-      });
-    }
-
-    return data.results;
-  } catch (error) {
-    log('Error during search:', error);
-    return [];
-  }
-}
-
-// New interface for query objectives
-interface QueryWithObjective {
-  query: string;
-  objective: string;
-}
-
-// New interface for website analysis results
-interface WebsiteAnalysis {
-  content: string;
-  sourceUrl: string;
-  sourceText: string;
-  meetsObjective: boolean;
-}
-
-// Generate queries with objectives
-async function generateQueriesWithObjectives(context: string, numQueries: number): Promise<QueryWithObjective[]> {
-  const { object } = await generateObject({
-    system: systemPrompt(),
-    prompt: `Analyze this research context and generate specific search queries with clear objectives:
-    ${context}
-    
-    For each query, specify:
-    1. The search query itself
-    2. A detailed objective explaining what specific information we want to find
-    
-    Generate ${numQueries} different queries that will help gather comprehensive information.`,
-    schema: z.object({
-      queries: z.array(z.object({
-        query: z.string(),
-        objective: z.string()
-      }))
-    }),
-    provider: 'gemini-2.0-flash'
-  });
-
-  return object.queries;
-}
-
-// Analyze single website content
-async function analyzeWebsiteContent(
-  content: ScrapedContent,
-  objective: string
-): Promise<WebsiteAnalysis | null> {
-  try {
-    const { object } = await generateObject({
-      system: systemPrompt(),
-      prompt: `Analyze this website content against our research objective.
-      
-      Objective: ${objective}
-      
-      Content:
-      ${content.markdown}
-      
-      Extract only highly relevant, fact-based information that directly addresses the objective.
-      If no relevant information is found, return null.`,
-      schema: z.object({
-        analysis: z.object({
-          content: z.string(),
-          sourceText: z.string(),
-          meetsObjective: z.boolean()
-        })
-      }),
-      provider: 'gemini-2.0-flash-lite-preview-02-05'
     });
 
-    return {
-      ...object.analysis,
-      sourceUrl: content.url
-    };
-
+    const report = JSON.parse(response.text())
+    return report;
   } catch (error) {
-    log(`Error analyzing content from ${content.url}:`, error);
-    return null;
+    log('Error generating report:', error);
+    throw new Error('Failed to generate research report');
   }
 }
 
@@ -500,11 +359,6 @@ export async function deepResearch({
   };
 }
 
-interface SerpResult {
-  title: string;
-  url: string;
-  content: string;
-}
 
 // SearXNG interfaces
 interface SearxResponse {
@@ -548,3 +402,36 @@ export type ResearchProgress = {
   completedQueries: number;
   analyzedWebsites?: number; // Add this field
 };
+
+
+// Add new types for source tracking
+interface TrackedLearning {
+  content: string;
+  sourceUrl: string;
+  sourceText: string;  // Original text snippet that led to this learning
+}
+
+type ProcessedResult = {
+  learnings: TrackedLearning[];
+  followUpQuestions: string[];
+};
+
+export type ResearchResult = {
+  learnings: TrackedLearning[];
+  visitedUrls: string[];
+};
+
+
+// New interface for query objectives
+interface QueryWithObjective {
+  query: string;
+  objective: string;
+}
+
+// New interface for website analysis results
+interface WebsiteAnalysis {
+  content: string;
+  sourceUrl: string;
+  sourceText: string;
+  meetsObjective: boolean;
+}
