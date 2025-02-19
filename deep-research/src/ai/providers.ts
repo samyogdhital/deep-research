@@ -1,9 +1,9 @@
-import { GenerateContentResult, GenerativeModel, GoogleGenerativeAI, ModelParams } from '@google/generative-ai';
+import { GenerateContentRequest, GenerateContentResult, GenerativeModel, GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, ModelParams } from '@google/generative-ai';
 
 
 
-export interface GenerateObjectParams extends ModelParams {
-  system: string;
+export type GenerateObjectParams = ModelParams & {
+  system: string
   prompt: string;
 }
 // Signature for some class to implement
@@ -47,13 +47,11 @@ class GeminiProvider implements AIProvider {
     return this.getNextAvailableKey();
   }
 
-  // TODO: have return type here.
   async generateObject(params: GenerateObjectParams): Promise<GenerateContentResult> {
     const apiKey = await this.getNextAvailableKey();
     const genAI = new GoogleGenerativeAI(apiKey);
 
     try {
-      // console.log('Using schema:', JSON.stringify(params.generationConfig?.responseSchema, null, 2));
 
       const model = genAI.getGenerativeModel({
         ...params,
@@ -61,15 +59,29 @@ class GeminiProvider implements AIProvider {
         generationConfig: {
           ...params.generationConfig,
           responseMimeType: "application/json",
-        }
+        },
+        safetySettings: [
+          {
+            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+        ],
+        systemInstruction: params.system
       });
 
-      const result = await model.generateContent(`${params.system}\n\n${params.prompt}`);
-      // const response = result.response.text();
-      // console.log("🚀🚀🚀🚀🚀", text, "✅✅✅", { object: JSON.parse(text) })
-      // return { object: JSON.parse(text) };
-      return result
-
+      return await model.generateContent(params.prompt);
     } catch (error: any) {
       if (error.message?.includes('429')) {
         this.rateLimitCooldown.set(apiKey, Date.now() + 120000);
@@ -110,6 +122,3 @@ class ModelProvider {
 
 const provider = ModelProvider.getInstance().getCurrentProvider();
 export const generateObject = (params: GenerateObjectParams) => provider.generateObject(params);
-
-
-// export const generateObject = ModelProvider.getInstance().getCurrentProvider().generateObject;

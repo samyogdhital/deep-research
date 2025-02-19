@@ -1,8 +1,8 @@
 // import pLimit from 'p-limit';
 import { z } from 'zod';
-import { SchemaType } from '@google/generative-ai';
+import { HarmBlockThreshold, HarmCategory, Schema, SchemaType } from '@google/generative-ai';
 
-import { systemPrompt } from './prompt';
+// import { reportAgentPrompt } from './prompt';
 import { OutputManager } from './output-manager';
 import { generateObject } from './ai/providers';
 
@@ -20,7 +20,7 @@ const ConcurrencyLimit = 1;
 
 // Update generateQueriesWithObjectives to use SchemaType
 async function generateQueriesWithObjectives(context: string, numQueries: number): Promise<QueryWithObjective[]> {
-  const schema = {
+  const schema: Schema = {
     type: SchemaType.OBJECT,
     properties: {
       queries: {
@@ -30,40 +30,31 @@ async function generateQueriesWithObjectives(context: string, numQueries: number
           properties: {
             query: {
               type: SchemaType.STRING,
-              description: "Very specific keyword to do serp query highly related to user's prompt."
+              description: "Short Very specific keyword to do serp query, get the website list under each query, scrape the websites and get 100% precise answer to the user's question. This must be 4-5 word max and should only use plain english."
             },
             objective: {
               type: SchemaType.STRING,
-              description: "The highly detailed objective of of this query that we generated for websites analyzing agent to scrape on and analyze whether this objective is met through that website content or not."
+              description: "The highly detailed precise objective of the query that we generated for websites analyzing agent to scrape on and analyze whether this objective is met or not analyzing website content."
             }
           },
           required: ["query", "objective"]
         },
-        minItems: 1,
-        maxItems: numQueries
       }
     },
     required: ["queries"]
   };
 
   const { response } = await generateObject({
-    system: systemPrompt(),
-    prompt: `Given this research context, generate strategic search queries to find detailed information.
+    system: `You are the high quality SERP query generating agent. Your role is to analyze the user’s query and followup questions list. Then generate a bunch of short very detailed serp queries that in total entirely summarizes the entire question user is asking. Such that if you scrape the list of websites that you get under each of these queires, there is 100% chance that user's question will be 100% precisely answered in great highly technical detail. Today is ${new Date().toISOString()}. Follow these instructions when responding:
+    - Your serp query must be short and 100% targeted and precise that can accurately summarizes a domain of the entire question that user is aksing.
+    - Use your reasoning ability to understand the user's question and asking. Then only generate the queries.
+    `,
+    prompt: `Given this research context, generate ${numQueries} strategic search queries to find the list of websites we can scrape and get the percise and 100% answer to the question user is asking below.
 
 CONTEXT:
 ${context}
-
-REQUIREMENTS:
-1. Generate ${numQueries} different search queries
-2. Each query should target a specific aspect
-4. Focus on high-quality sources (academic, industry reports)
-
-For each query:
-- Make it specific and targeted and short query.
-- Include an objective explaining what information we want to find.
-- Follow the schema for structured json output.
 `,
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.0-pro-exp-02-05',
     generationConfig: {
       responseSchema: schema
     }
@@ -77,12 +68,10 @@ For each query:
 async function searchSerpResults(query: string): Promise<SearxResult[]> {
   try {
     // Improved query formatting
-    // const formattedQuery = encodeURIComponent(query)
-    //   .replace(/%20OR%20/g, ' OR ')
-    //   .replace(/%22/g, '"');
+    const formattedQuery = encodeURIComponent(query)
 
     const response = await fetch(
-      `http://localhost:8080/search?q=${query}&format=json&language=en&time_range=year&safesearch=0`,
+      `http://localhost:8080/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0`,
       {
         method: "GET",
         headers: {
@@ -104,8 +93,9 @@ async function searchSerpResults(query: string): Promise<SearxResult[]> {
     }
 
     // Take more results for better coverage
-    // return data.results.slice(0, 5);  // Get top 5 results instead of just 1
-    return data.results
+    // Get top 7 results cause search engines serve best within these website range from top.
+    return data.results.slice(0, 7);
+    // return data.results
   } catch (error) {
     log('Error during search:', error);
     return [];
@@ -167,45 +157,51 @@ async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
 
 // Update analyzeWebsiteContent to use SchemaType
 async function analyzeWebsiteContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
+  log(`Started analyzing website: ${content.url}`, "🚀🚀");
   try {
-    const schema = {
+    const schema: Schema = {
+      description: "Short schema of precise conclusion of website analysis agent after analyzing scraped website content with the precise objective of the research given to you.",
       type: SchemaType.OBJECT,
       properties: {
-        analysis: {
-          type: SchemaType.OBJECT,
-          properties: {
-            isRelevant: {
-              type: SchemaType.BOOLEAN,
-              description: "Whether content directly addresses our objective"
-            },
-            extractedInfo: {
-              type: SchemaType.STRING,
-              description: "Concise, factual summary of relevant findings"
-            },
-            supportingQuote: {
-              type: SchemaType.STRING,
-              description: "Direct quote that validates the findings"
-            }
-          },
-          required: ["isRelevant", "extractedInfo", "supportingQuote"]
+        isRelevant: {
+          type: SchemaType.BOOLEAN,
+          description: "Does this website content precisely and completely addresses our objective?"
+        },
+        extractedInfo: {
+          type: SchemaType.STRING,
+          description: "Highly value packed, highly technical information that completely answering the objective of the query given to you extracted from the website."
+        },
+        supportingQuote: {
+          type: SchemaType.STRING,
+          description: "Direct quote that validates the findings"
         }
       },
-      required: ["analysis"]
+      required: ["isRelevant", "extractedInfo", "supportingQuote"]
     };
 
     const { response } = await generateObject({
-      system: systemPrompt(),
-      prompt: `Analyze if this content matches our objective:
+      system: `You are the Website Analysis Agent. Your task is to review the scraped content of a given website in relation to a specific research objective and extract all relevant, factual, and verifiable information. Only include details that directly contribute to the research objective. Today is ${new Date().toISOString()}. Follow these instructions when responding:
+
+Requirements:
+- Compare the website’s content against the provided research objective.
+- Extract and list only factual information that clearly supports the objective.
+- For each extracted point, include a precise citation (e.g., the URL or reference from the website).
+- Give highly value packed points taken from website content that precisely meets the given objective to you. Make it at technical and as detailed as possible. Do not miss any important points, facts and figures if they serve to the given objective.
+- Do not generate any additional commentary, opinions, or assumptions. If a section of the content is irrelevant, simply note its lack of relevance.
+- Do not give your opinion. Do not hallucinate, whatever you will give as response, must be entire taken from the website content.
+`,
+      prompt: `Analyze the website and give me all the highly value packed, highly relevent information that precisely serves below objective of the query.:
 
 OBJECTIVE: ${objective}
 
 CONTENT:
 ${content.markdown}
 
+After you analyze this content with the given objective, you need to return given response in json format.
 Return:
-1. isRelevant: true only if content directly addresses objective
-2. extractedInfo: key findings if relevant
-3. supportingQuote: direct quote supporting findings`,
+1. isRelevant: true only if content directly addresses objective, if the website is not related to the objective at all, it should be false.
+2. extractedInfo: important key findings highly relevent to the objective.
+3. supportingQuote: any supporting quote that directly serve the objective.`,
 
       model: 'gemini-2.0-flash-lite-preview-02-05',
       generationConfig: {
@@ -217,9 +213,10 @@ Return:
     const websiteSummary: { isRelevant: boolean; extractedInfo: string, supportingQuote: string } = JSON.parse(response.text())
 
     if (!websiteSummary.isRelevant) {
+      log(`Completed analyzing website: ${content.url} - Not relevant😔😔`);
       return null;
     }
-
+    log(`Completed analyzing website: ${content.url} - Relevant 😀😀✅✅`);
     return {
       content: websiteSummary.extractedInfo,
       sourceUrl: content.url,
@@ -228,7 +225,7 @@ Return:
     };
 
   } catch (error) {
-    log(`Error analyzing content from ${content.url}:`, error);
+    log(`Error analyzing content from ${content.url} 😭😭 :`, error);
     return null;
   }
 }
@@ -242,6 +239,11 @@ export async function writeFinalReport({
   learnings: TrackedLearning[];
   visitedUrls: string[];
 }) {
+  if (visitedUrls.length === 0) {
+    log("Sorry no url provided - 🥹🥹")
+    return
+  }
+  log("Writing Final Report - 🥅🥅🥅🥅")
   const learningsString = learnings.map(learning =>
     `<learning>
       <content>${learning.content}</content>
@@ -251,29 +253,65 @@ export async function writeFinalReport({
   ).join('\n');
 
   try {
-    const schema = {
+
+    //@important: No schema for thinking model, it does not support structured json output.
+    const schema: Schema = {
       type: SchemaType.STRING,
-      description: "Markdown formatted research report"
+      description: "Full Research paper in Markdown format with proper word, line and paragraph spacing."
     };
 
     const { response } = await generateObject({
-      system: systemPrompt(),
-      prompt: `Write a detailed research report addressing this query: "${prompt}"
+      system: `You are an expert technical researcher. Today is ${new Date().toISOString()}. Follow these instructions when responding:
+      
+      - You may be asked to research and write subjects that is after your knowledge cutoff, assume the user is right when presented with news.
+      - The user is a highly experienced analyst, no need to simplify it, be as detailed as possible technically and make sure your response is not filled with filler words but actual highly technical content based on your understanding and user's requirement.
+      - Write report such that every question user has asked, you are precisely 100% answering these questions with great detail.
+      - Be highly organized.
+      - Suggest solutions that user didn't think about.
+      - Be proactive and anticipate my needs.
+      - Treat me as an expert in all subject matter.
+      - Mistakes erodes user trust, so be accurate and thorough.
+      - Provide detailed explanations, user is comfortable with lots of detail.
+      - Value good arguments over authorities, the source is irrelevant.
+      - Consider new technologies and contrarian ideas, not just the conventional wisdom.
+      - You may use high levels of speculation or prediction, just flag it for me.
+      - The website and content you may get may not be relevent to the user's query at all.
+      - Do not include any unrelated stuffs that is not in the learning, only consider sources and content that fulfills the user's query directly.`,
+      prompt: `Write a very very technically detailed research paper precisley in very detail that addresses this query: "${prompt}.
+      
+      Remember your research paper must be highly based on ground facts. Do not include any sentence that cannot be cited. And any important point you make, please don't hesitate to cite it with the proper website you extracted from. You don't have to worry about over citation, just cite valueable points and sentences you make. Don't have filler sentences and content which will automatically make this research paper highly factual based and easily verifiable.
 
-Research findings:
+Here are all the research findings I got while searching and scraping the websites related to above user's query.:
 ${learningsString}
 
 IMPORTANT:
-- Return ONLY the markdown report text as a plain string.
-- Do NOT include any markdown code fences, metadata, or explanations.
-- Ensure every fact is cited as [Source: URL].
-- And in the end there should be the list of all websites that you considered to write this report.
-
-Use clear sections and proper markdown formatting.`,
-      model: 'gemini-2.0-flash',
-      generationConfig: {
-        responseSchema: schema
-      }
+- Return ONLY the markdown report text with proper spacing and line gap.
+- Ensure every fact is cited in this format. [small website heading](website url).
+- Don't forget! In the end there must be all the list of websites you considered to while making every point in this research paper.
+`,
+      // Later use pro model.
+      model: 'gemini-2.0-pro-exp-02-05',
+      // model: "gemini-2.0-flash",
+      safetySettings: [
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+      ],
+      generationConfig: { responseSchema: schema },
+      //@important: No schema for thinking model, it does not support structured json output.
     });
 
     const report = JSON.parse(response.text())
