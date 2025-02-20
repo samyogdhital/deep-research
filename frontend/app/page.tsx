@@ -432,13 +432,13 @@ export default function Home() {
               <AccordionTrigger 
                 className="px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline"
               >
-                <div className="flex items-center gap-3 w-full pr-4"> {/* Added w-full and pr-4 */}
+                <div className="flex items-center gap-3 w-full overflow-hidden"> {/* Added overflow-hidden to the container */}
                   {status.loading ? (
                     <Spinner className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-white" />
                   ) : status.complete ? (
                     <Check className="w-5 h-5 flex-shrink-0 text-green-500" />
                   ) : null}
-                  <span className="truncate text-gray-900 dark:text-gray-100 font-medium min-w-0"> {/* Added min-w-0 */}
+                  <span className="truncate text-gray-900 dark:text-gray-100 font-medium">
                     {latestLog || status.message || 'Ready to begin research'}
                   </span>
                 </div>
