@@ -9,6 +9,14 @@ import { TbSend2 } from "react-icons/tb";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { Button } from "@/components/ui/button"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 
 type ResearchState = {
   step: 'input' | 'follow-up' | 'processing' | 'complete';
@@ -270,87 +278,87 @@ export default function Home() {
     if (state.initialPrompt) {
       textarea.style.height = 'auto';
       const newHeight = Math.max(
-        200, // smaller min-height
+        150, // smaller min-height
         Math.min(
           textarea.scrollHeight + 16,
-          window.innerHeight * 0.6 // max 60% of viewport height
+          window.innerHeight * 0.5 // max 50% of viewport height
         )
       );
       textarea.style.height = `${newHeight}px`;
     } else {
       // Reset to min-height when empty
-      textarea.style.height = '200px';
+      textarea.style.height = '150px';
     }
   }, [state.initialPrompt]);
 
-  // Add resize listener
-  useEffect(() => {
-    const handleResize = () => {
-      handleTextareaResize();
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [handleTextareaResize]);
-
-  // Auto-resize on content change
-  useEffect(() => {
-    handleTextareaResize();
-  }, [state.initialPrompt, handleTextareaResize]);
-
   return (
-    <main className="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col font-inter">
+    <main className="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+
       {state.step === 'input' && (
         <div className="flex-1 flex flex-col items-center justify-center -mt-24 space-y-12">
-          <h2 className="text-4xl font-bold text-gray-800 tracking-tight">
+          <h2 className="text-4xl font-bold font-inter text-gray-800 dark:text-white tracking-tight">
             What do you want to know?
           </h2>
           
-          {/* Combined input container with seamless border */}
-          <div className="w-full max-w-2xl relative border rounded-lg overflow-hidden">
-            {/* Input area - removed border-bottom */}
-            <textarea
-              ref={textareaRef}
-              className="w-full p-6 pb-16 text-base font-medium focus:outline-none resize-none overflow-hidden border-none transition-all duration-200"
-              style={{ 
-                height: '200px', // Fixed initial height
-                maxHeight: 'calc(60vh)' // Max height as 60% of viewport
-              }}
-              placeholder="Enter your research query..."
-              value={state.initialPrompt}
-              onChange={e => {
-                setState(prev => ({ ...prev, initialPrompt: e.target.value }));
-                handleTextareaResize();
-              }}
-            />
-            
-            {/* Controls section - removed border-top */}
-            <div className="absolute bottom-0 left-0 right-0 px-6 py-3 bg-white">
+          {/* Combined container with seamless connection */}
+          <div className="w-full max-w-2xl">
+            <div className="border-2 dark:border-gray-700 rounded-t-lg overflow-auto bg-white dark:bg-[#202121] border-b-0">
+              <textarea
+                ref={textareaRef}
+                className="w-full text-base font-medium resize-none border-none focus:outline-none focus:ring-0
+                  text-gray-900 dark:text-white 
+                  placeholder:text-gray-400 dark:placeholder:text-gray-500 p-[24px] pt-[10px] pb-0 mt-4 h-[150px] dark:bg-[#202121]"
+                placeholder="Enter your research query..."
+                value={state.initialPrompt}
+                onChange={e => {
+                  setState(prev => ({ ...prev, initialPrompt: e.target.value }));
+                  handleTextareaResize();
+                }}
+              />
+            </div>
+
+            {/* Controls section with top border removed */}
+            <div className="border-2 dark:border-gray-700 border-t-0 rounded-b-lg bg-white dark:bg-[#202121] px-6 py-3">
               <div className="flex justify-between items-center">
                 <div className="flex gap-3">
                   <div className="relative">
-                    <button
+                    <Button
+                      variant="outline"
                       onClick={handleDepthClick}
-                      className="depth-button text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 bg-white"
+                      className="depth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
                     >
-                      <span className="font-semibold tracking-wide">Depth: {state.depth}</span>
-                    </button>
+                      Depth: {state.depth || 1}
+                    </Button>
                     {showDepthInput && (
-                      <div className="depth-input absolute bottom-full mb-2 left-0 bg-white p-3 rounded-lg shadow-lg border min-w-[180px] z-10">
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      <div className="depth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10">
+                        <label className="block text-sm font-semibold mb-2 dark:text-white">
                           Select Depth (1-10)
                         </label>
                         <input
                           type="number"
                           min={1}
                           max={10}
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={state.depth}
+                          className="w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                          value={state.depth === null ? '' : state.depth}
                           onChange={e => {
-                            const value = e.target.value === '' ? 1 : parseInt(e.target.value);
-                            setState(prev => ({
-                              ...prev,
-                              depth: Math.max(1, Math.min(10, value))
-                            }));
+                            const inputValue = e.target.value;
+                            if (inputValue === '') {
+                              setState(prev => ({ ...prev, depth: null }));
+                            } else {
+                              const value = parseInt(inputValue);
+                              setState(prev => ({
+                                ...prev,
+                                depth: Math.max(1, Math.min(10, value))
+                              }));
+                            }
+                          }}
+                          onBlur={() => {
+                            if (state.depth === null) {
+                              setState(prev => ({ ...prev, depth: 1 }));
+                            }
                           }}
                         />
                       </div>
@@ -358,29 +366,40 @@ export default function Home() {
                   </div>
 
                   <div className="relative">
-                    <button
+                    <Button
+                      variant="outline"
                       onClick={handleBreadthClick}
-                      className="breadth-button text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 bg-white"
+                      className="breadth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
                     >
-                      <span className="font-semibold tracking-wide">Breadth: {state.breadth}</span>
-                    </button>
+                      Breadth: {state.breadth || 1}
+                    </Button>
                     {showBreadthInput && (
-                      <div className="breadth-input absolute bottom-full mb-2 left-0 bg-white p-3 rounded-lg shadow-lg border min-w-[180px] z-10">
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      <div className="breadth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10">
+                        <label className="block text-sm font-semibold mb-2 dark:text-white">
                           Select Breadth (1-10)
                         </label>
                         <input
                           type="number"
                           min={1}
                           max={10}
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={state.breadth}
+                          className="w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                          value={state.breadth === null ? '' : state.breadth}
                           onChange={e => {
-                            const value = e.target.value === '' ? 1 : parseInt(e.target.value);
-                            setState(prev => ({
-                              ...prev,
-                              breadth: Math.max(1, Math.min(10, value))
-                            }));
+                            const inputValue = e.target.value;
+                            if (inputValue === '') {
+                              setState(prev => ({ ...prev, breadth: null }));
+                            } else {
+                              const value = parseInt(inputValue);
+                              setState(prev => ({
+                                ...prev,
+                                breadth: Math.max(1, Math.min(10, value))
+                              }));
+                            }
+                          }}
+                          onBlur={() => {
+                            if (state.breadth === null) {
+                              setState(prev => ({ ...prev, breadth: 1 }));
+                            }
                           }}
                         />
                       </div>
@@ -388,18 +407,17 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Submit button with new styling */}
-                <button
-                  className={`rounded-full p-3 transition-all ${
-                    state.initialPrompt 
-                      ? 'bg-gray-900 text-white' 
-                      : 'text-gray-300'
-                  } hover:bg-gray-100`}
-                  onClick={handleInitialSubmit}
+                {/* Circular submit button */}
+                <Button
                   disabled={!state.initialPrompt}
+                  onClick={handleInitialSubmit}
+                  className={`rounded-full w-12 h-12 p-0 flex items-center justify-center transition-colors
+                    ${state.initialPrompt 
+                      ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white' 
+                      : 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-400'}`}
                 >
                   <TbSend2 size={20} />
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -409,84 +427,51 @@ export default function Home() {
       {/* Updated Log Section */}
       {state.step !== 'input' && (
         <div className="mb-8">
-          <div 
-            className="mb-2 p-4 border rounded-lg bg-white cursor-pointer"
-            onClick={(e) => {
-              const target = e.target as HTMLElement;
-              if (!target.closest('.log-content')) {
-                setState(prev => ({ ...prev, showLogs: !prev.showLogs }));
-              }
-            }}
-          >
-            <div className="flex items-center justify-between">
-              {/* Log text container with fade effect */}
-              <div className="flex items-center gap-3 flex-1 min-w-0"> {/* add min-w-0 to allow truncation */}
-                {status.loading ? (
-                  <Spinner className="w-5 h-5 flex-shrink-0" />
-                ) : status.complete ? (
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                ) : null}
-                <div 
-                  className="relative flex-1 min-w-0" // Container for fade effect
-                >
-                  <div 
-                    className="text-base font-bold text-gray-800 truncate pr-16 before:content-[''] before:absolute before:right-0 before:top-0 before:bottom-0 before:w-16 before:bg-gradient-to-r before:from-transparent before:to-white"
-                  >
-                    {!state.showLogs && latestLog ? latestLog : status.message || 'Ready to begin research'}
-                  </div>
+          <Accordion type="single" className='w-full' collapsible>
+            <AccordionItem value="item-1" className="border-2 dark:border-gray-700 rounded-lg">
+              <AccordionTrigger 
+                className="px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline"
+              >
+                <div className="flex items-center gap-3 w-full pr-4"> {/* Added w-full and pr-4 */}
+                  {status.loading ? (
+                    <Spinner className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-white" />
+                  ) : status.complete ? (
+                    <Check className="w-5 h-5 flex-shrink-0 text-green-500" />
+                  ) : null}
+                  <span className="truncate text-gray-900 dark:text-gray-100 font-medium min-w-0"> {/* Added min-w-0 */}
+                    {latestLog || status.message || 'Ready to begin research'}
+                  </span>
                 </div>
-              </div>
-
-              {/* Controls with proper spacing */}
-              <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                {isProcessing && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      stopResearch();
-                    }}
-                    className="p-2 hover:bg-red-50 rounded-full"
-                    title="Stop Research"
-                  >
-                    <FaRegStopCircle className="w-6 h-6 text-red-500" />
-                  </button>
-                )}
-                <ChevronDown
-                  size={16}
-                  className={`transform transition-transform ${state.showLogs ? 'rotate-180' : ''}`}
-                />
-              </div>
-            </div>
-
-            {/* Expanded logs section */}
-            {state.showLogs && (
-              <div className="mt-4 pt-4 border-t log-content">
-                <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto overflow-x-hidden font-mono text-sm">
+              </AccordionTrigger>
+              <AccordionContent className="border-t bg-gray-100 dark:bg-[#313131]">
+                <div className="bg-gray-100 dark:bg-[#313131] p-4 rounded-b-lg">
                   {state.logs.map((log, idx) => (
-                    <div 
-                      key={idx} 
-                      className="py-1 text-gray-700 truncate pr-4 hover:whitespace-normal hover:truncate-none"
-                    >
+                    <div key={idx} className="py-1.5 text-gray-700 dark:text-white">
                       {log}
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-          </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
       )}
 
-      {/* Follow-up Questions Section */}
+      {/* Updated Follow-up section */}
       {state.step === 'follow-up' && (
         <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-gray-800 mb-6">Follow-up Questions</h2>
+          <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            Follow-up Questions
+          </h2>
           {state.followUpQuestions.map((question, idx) => (
             <div key={idx} className="space-y-2">
-              <p className="font-bold text-gray-700">{question}</p>
+              <p className="font-bold text-gray-700 dark:text-gray-300">{question}</p>
               <textarea
-                className="w-full p-4 border rounded-lg text-base font-medium focus:ring-2 focus:ring-gray-400"
-                rows={3}
+                className="w-full p-4 border-2 rounded-lg text-base font-medium 
+                  focus:outline-none focus:ring-0 focus:border-gray-400
+                  dark:bg-[#202121] dark:text-white dark:border-gray-700
+                  dark:focus:border-[#007e81] transition-colors
+                  resize-none min-h-[120px]"
                 onChange={e => setState(prev => ({
                   ...prev,
                   followUpAnswers: { ...prev.followUpAnswers, [question]: e.target.value }
@@ -495,31 +480,36 @@ export default function Home() {
             </div>
           ))}
           <div className="flex justify-end mt-8">
-            <button
-              className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-bold"
+            <Button
               onClick={handleResearchStart}
+              className="text-black bg-white hover:text-white hover:bg-black
+                dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white border border-black
+                transition-colors"
             >
               Deep Research
-              <ArrowRight size={18} />
-            </button>
+              <ArrowRight size={18} className="ml-2" />
+            </Button>
           </div>
         </div>
       )}
-
-      {/* Complete Section with enhanced markdown rendering */}
+{/* dark:bg-[#007e81] dark:hover:bg-[#00676a] */}
+      {/* Complete section */}
       {state.step === 'complete' && (
         <div className="space-y-6">
-          <div className="flex justify-end gap-4">
-            <button
-              className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 font-bold"
+          {/* Download button */}
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
               onClick={() => downloadReport('md')}
+              className="flex items-center gap-2 px-3 py-2 border border-black transition-colors hover:text-white hover:bg-black dark:bg-transparent dark:text-[#007e81] dark:border-[#007e81] dark:hover:hover:bg-[#00676a] dark:hover:text-white"
             >
-              <Download size={18} />
+              <Download size={16} />
               Download Markdown
-            </button>
+            </Button>
           </div>
 
-          <div className="prose prose-lg max-w-none font-medium">
+          {/* Report content with proper dark mode */}
+          <div className="prose dark:prose-invert max-w-none">
             <ReactMarkdown 
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw]}
@@ -541,8 +531,6 @@ export default function Home() {
               {state.report}
             </ReactMarkdown>
           </div>
-          
-          {/* ...existing sources accordion... */}
         </div>
       )}
     </main>
