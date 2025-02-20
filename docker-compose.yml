@@ -167,13 +167,17 @@ services:
 
 
 # --------------- Deep Research
-  # deep-research:
-  #   container_name: deep-research
+  # app:
+  #   container_name: Fullstack-Deep-Research-Agent
   #   build: .
-  #   env_file:
-  #     - ./deep-research/.env.local
-  #   tty: true
-  #   stdin_open: true
+  #   ports:
+  #     - "3000:3000"
+  #     - "3001:3001"
+  #   environment:
+  #     - NODE_ENV=production
+  #   volumes:
+  #     - .:/app
+  #   restart: always
 
 
 networks:
