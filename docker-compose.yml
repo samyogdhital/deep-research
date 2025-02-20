@@ -168,17 +168,17 @@ services:
 
 # --------------- Deep Research
   app:
-    container_name: fullstack-deep-research-agent
+    container_name: deep-research-agent
     build: .
     ports:
       - "3000:3000"
       - "3001:3001"
     environment:
       - NODE_ENV=production
-    # volumes:
-    #   - .:/app
     restart: always
-
+    networks:
+      - backend
+      - searxng
 
 networks:
   backend:

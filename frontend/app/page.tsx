@@ -69,7 +69,7 @@ export default function Home() {
   }, [socket]);
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3001', {
+    const newSocket = io('http://127.0.0.1:3001', {
       withCredentials: true,
       transports: ['websocket']
     });
@@ -166,7 +166,7 @@ export default function Home() {
         breadth: prev.breadth || 1
       }));
       
-      const response = await fetch('http://host.docker.internal:3001/api/research/questions', {
+      const response = await fetch('http://127.0.0.1:3001/api/research/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -499,7 +499,7 @@ export default function Home() {
               className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-bold"
               onClick={handleResearchStart}
             >
-              Continue Research
+              Deep Research
               <ArrowRight size={18} />
             </button>
           </div>
