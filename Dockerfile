@@ -1,19 +1,5 @@
-# FROM node:18-alpine
-
-# WORKDIR /app
-
-# COPY deep-research/. .
-# COPY deep-research/package.json ./
-# COPY deep-research/.env.local ./.env.local
-
-# RUN npm install
-
-# CMD ["npm", "run", "docker"]
-
-
-
 # Use an official Node.js image as the base
-FROM node:22-alpine
+FROM node:18-alpine
 
 # Set the working directory
 WORKDIR /app
@@ -29,8 +15,12 @@ RUN cd frontend && npm install
 # Copy the entire project files
 COPY . .
 
+# Build both projects
+RUN cd deep-research && npm run build
+RUN cd frontend && npm run build
+
 # Expose the necessary ports
 EXPOSE 3000 3001
 
-# Use a process manager to run both services
+# Start both projects after building
 CMD ["sh", "-c", "cd deep-research && npm run api & cd /app/frontend && npm run start"]
