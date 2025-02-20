@@ -276,8 +276,15 @@ export async function writeFinalReport({
 
     //@important: No schema for thinking model, it does not support structured json output.
     const schema: Schema = {
-      type: SchemaType.STRING,
-      description: "Full Research paper in Markdown format only with proper word, line and paragraph spacing. Do not ouput in any other format other than full rich markdown format. Make new lines and new paragraph and proper formating you know these research paper writing technique in markdown right?"
+      type: SchemaType.OBJECT,
+      properties: {
+        research_paper: {
+          type: SchemaType.STRING,
+          description: "Full Research paper in Markdown format only with proper word, line and paragraph spacing. Do not ouput in any other format other than full rich markdown format. Make new lines and new paragraph and proper formating you know these research paper writing technique in markdown right?",
+          nullable: false,
+        },
+      },
+      required: ["research_paper"],
     };
 
     const { response } = await generateObject({
@@ -335,7 +342,10 @@ IMPORTANT:
     });
 
     // Return the text directly without JSON.parse
-    return response.text();
+
+    const model_response: { research_paper: string } = JSON.parse(response.text());
+    log("Final Report Generated - 🥅🥅🥅🥅", model_response, "✅😀")
+    return model_response.research_paper
   } catch (error) {
     log('Error generating report:', error);
     throw new Error('Failed to generate research report');

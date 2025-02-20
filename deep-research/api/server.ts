@@ -32,7 +32,7 @@ let currentResearch: {
 
 // Update broadcast function to handle all logging
 function broadcast(message: string) {
-    console.log(message);  // Server-side log
+    // console.log(message);  // Server-side log
     io.emit('log', message);  // Send to all clients
 }
 
@@ -157,6 +157,12 @@ ${Object.entries(followUpAnswers)
             learnings: result.learnings,
             visitedUrls: result.visitedUrls
         });
+
+        // Save report to file before sending response
+        await fs.writeFile(
+            path.join(process.cwd(), 'research.md'),
+            report
+        );
 
         // Add this broadcast before sending response
         broadcast('Deep Research complete.');
