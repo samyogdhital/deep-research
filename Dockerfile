@@ -1,12 +1,12 @@
 # Use an official Node.js image as the base
-FROM node:18-alpine
+FROM node:22-alpine
 
 # Set the working directory
 WORKDIR /app
 
 # Copy package.json and package-lock.json for both projects
-COPY deep-research/package.json deep-research/package-lock.json ./deep-research/
-COPY frontend/package.json frontend/package-lock.json ./frontend/
+COPY deep-research/package*.json ./deep-research/
+COPY frontend/package*.json ./frontend/
 
 # Install dependencies separately
 RUN cd deep-research && npm install
@@ -16,7 +16,7 @@ RUN cd frontend && npm install
 COPY . .
 
 # Build both projects
-RUN cd deep-research && npm run build
+# RUN cd deep-research && npm run build
 RUN cd frontend && npm run build
 
 # Expose the necessary ports

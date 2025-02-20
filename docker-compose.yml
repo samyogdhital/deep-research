@@ -137,24 +137,24 @@ services:
     - "host.docker.internal:host-gateway"
 
 # --------------- Crawlrouter
-  crawlrouter:
-    container_name: crawlrouter
-    build: https://github.com/loorisr/crawlrouter.git
-    ports:
-      - "8000:8000"
-    environment:
-      - SCRAPE_BACKEND=firecrawl
-      - SEARCH_BACKEND=searxng
-      - FIRECRAWL_SCRAPE_ENDPOINT=http://host.docker.internal:3002/v1/scrape
-      - FIRECRAWL_API_KEY=""
-      - SEARXNG_ENDPOINT=http://host.docker.internal:8080
-      # - CRAWL4AI_ENDPOINT=http://host.docker.internal:11235
-      - FIRECRAWL_TIMEOUT=30000
-      - CRAWL4AI_TIMEOUT=30000
-      - HTTP_TIMEOUT=30000
-    security_opt:
-      - no-new-privileges=true
-    read_only: true
+  # crawlrouter:
+  #   container_name: crawlrouter
+  #   build: https://github.com/loorisr/crawlrouter.git
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - SCRAPE_BACKEND=firecrawl
+  #     - SEARCH_BACKEND=searxng
+  #     - FIRECRAWL_SCRAPE_ENDPOINT=http://host.docker.internal:3002/v1/scrape
+  #     - FIRECRAWL_API_KEY=""
+  #     - SEARXNG_ENDPOINT=http://host.docker.internal:8080
+  #     # - CRAWL4AI_ENDPOINT=http://host.docker.internal:11235
+  #     - FIRECRAWL_TIMEOUT=30000
+  #     - CRAWL4AI_TIMEOUT=30000
+  #     - HTTP_TIMEOUT=30000
+  #   security_opt:
+  #     - no-new-privileges=true
+  #   read_only: true
 
 # --------------- Crawl4ai
   # crawl4ai:
@@ -167,17 +167,17 @@ services:
 
 
 # --------------- Deep Research
-  # app:
-  #   container_name: Fullstack-Deep-Research-Agent
-  #   build: .
-  #   ports:
-  #     - "3000:3000"
-  #     - "3001:3001"
-  #   environment:
-  #     - NODE_ENV=production
-  #   volumes:
-  #     - .:/app
-  #   restart: always
+  app:
+    container_name: fullstack-deep-research-agent
+    build: .
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+    # volumes:
+    #   - .:/app
+    restart: always
 
 
 networks:

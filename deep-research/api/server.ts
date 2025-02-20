@@ -17,7 +17,7 @@ let globalSocket: Server;
 
 const io = new Server(httpServer, {
     cors: {
-        origin: "http://localhost:3000",  // Frontend URL
+        origin: "http://host.docker.internal:3000",  // Frontend URL
         methods: ["GET", "POST"],
         credentials: true,
         allowedHeaders: ["Content-Type"]
@@ -157,6 +157,9 @@ ${Object.entries(followUpAnswers)
             learnings: result.learnings,
             visitedUrls: result.visitedUrls
         });
+
+        // Add this broadcast before sending response
+        broadcast('Deep Research complete.');
 
         // Send raw markdown without JSON stringifying
         res.json({

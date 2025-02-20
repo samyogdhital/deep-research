@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ChevronDown, ChevronUp, Download, Check, Square, ArrowRight } from 'lucide-react';
-import { FaRegStopCircle, FaPaperPlane } from "react-icons/fa";
+import { ChevronDown,  Download, Check,  ArrowRight } from 'lucide-react';
+import { FaRegStopCircle} from "react-icons/fa";
 import { Spinner } from './spinner';
 import { TbSend2 } from "react-icons/tb";
 import ReactMarkdown from 'react-markdown';
@@ -99,7 +99,7 @@ export default function Home() {
         setStatus({ loading: true, message: 'Processing research...', complete: false });
       } else if (message.includes('Generating final report')) {
         setStatus({ loading: true, message: 'Generating final report...', complete: false });
-      } else if (message.includes('Research complete')) {
+      } else if (message.includes('Deep Research complete.')) { // Add this condition
         setStatus({ loading: false, message: 'Research completed successfully', complete: true });
       } else if (message.includes('Research terminated by user')) {
         setStatus({ loading: false, message: 'Research stopped', complete: false });
@@ -166,7 +166,7 @@ export default function Home() {
         breadth: prev.breadth || 1
       }));
       
-      const response = await fetch('http://localhost:3001/api/research/questions', {
+      const response = await fetch('http://host.docker.internal:3001/api/research/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -346,10 +346,10 @@ export default function Home() {
                           className="w-full p-2 border rounded-md text-sm"
                           value={state.depth}
                           onChange={e => {
-                            const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                            const value = e.target.value === '' ? 1 : parseInt(e.target.value);
                             setState(prev => ({
                               ...prev,
-                              depth: value === '' ? value : Math.max(1, Math.min(10, value || 1))
+                              depth: Math.max(1, Math.min(10, value))
                             }));
                           }}
                         />
@@ -376,10 +376,10 @@ export default function Home() {
                           className="w-full p-2 border rounded-md text-sm"
                           value={state.breadth}
                           onChange={e => {
-                            const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                            const value = e.target.value === '' ? 1 : parseInt(e.target.value);
                             setState(prev => ({
                               ...prev,
-                              breadth: value === '' ? value : Math.max(1, Math.min(10, value || 1))
+                              breadth: Math.max(1, Math.min(10, value))
                             }));
                           }}
                         />
