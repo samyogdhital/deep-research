@@ -2,6 +2,11 @@ import { ResearchProgress } from './deep-research';
 
 export class OutputManager {
   private logs: string[] = [];
+  private broadcastFn?: (message: string) => void;
+
+  constructor(broadcastFn?: (message: string) => void) {
+    this.broadcastFn = broadcastFn;
+  }
 
   log(...args: any[]) {
     const logMessage = args.map(arg =>
@@ -9,8 +14,11 @@ export class OutputManager {
     ).join(' ');
 
     this.logs.push(logMessage);
-    // Add console output back for debugging
     console.log(logMessage);
+
+    if (this.broadcastFn) {
+      this.broadcastFn(logMessage); // This will emit to frontend
+    }
   }
 
   updateProgress(progress: ResearchProgress) {

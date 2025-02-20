@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ChevronDown, ChevronUp, Download, Check, Square, ArrowRight } from 'lucide-react';
 import { FaRegStopCircle, FaPaperPlane } from "react-icons/fa";
 import { Spinner } from './spinner';
 import { TbSend2 } from "react-icons/tb";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 
 type ResearchState = {
   step: 'input' | 'follow-up' | 'processing' | 'complete';
@@ -215,15 +218,20 @@ export default function Home() {
       }
 
       const data = await response.json();
-      if (!data.report || !data.sources) {
-        throw new Error('Invalid response format');
+      
+      // Add validation and logging
+      console.log('Received report data:', data);
+      
+      if (!data.report) {
+        console.error('Missing report in response:', data);
+        throw new Error('Report data is missing from response');
       }
 
       setState(prev => ({
         ...prev,
         step: 'complete',
         report: data.report,
-        sources: data.sources
+        sources: data.sources || []
       }));
     } catch (error) {
       console.error('Error during research:', error);
@@ -250,6 +258,45 @@ export default function Home() {
     window.URL.revokeObjectURL(url);
   };
 
+  // Add ref for textarea
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Modified auto-resize handler
+  const handleTextareaResize = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Set initial height to scrollHeight only if there's content
+    if (state.initialPrompt) {
+      textarea.style.height = 'auto';
+      const newHeight = Math.max(
+        200, // smaller min-height
+        Math.min(
+          textarea.scrollHeight + 16,
+          window.innerHeight * 0.6 // max 60% of viewport height
+        )
+      );
+      textarea.style.height = `${newHeight}px`;
+    } else {
+      // Reset to min-height when empty
+      textarea.style.height = '200px';
+    }
+  }, [state.initialPrompt]);
+
+  // Add resize listener
+  useEffect(() => {
+    const handleResize = () => {
+      handleTextareaResize();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [handleTextareaResize]);
+
+  // Auto-resize on content change
+  useEffect(() => {
+    handleTextareaResize();
+  }, [state.initialPrompt, handleTextareaResize]);
+
   return (
     <main className="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col font-inter">
       {state.step === 'input' && (
@@ -257,109 +304,114 @@ export default function Home() {
           <h2 className="text-4xl font-bold text-gray-800 tracking-tight">
             What do you want to know?
           </h2>
-          <div className="w-full max-w-2xl relative">
+          
+          {/* Combined input container with seamless border */}
+          <div className="w-full max-w-2xl relative border rounded-lg overflow-hidden">
+            {/* Input area - removed border-bottom */}
             <textarea
-              className="w-full p-6 pb-20 border rounded-lg min-h-[200px] text-base font-medium focus:ring-2 focus:ring-gray-400 focus:border-transparent shadow-sm"
+              ref={textareaRef}
+              className="w-full p-6 pb-16 text-base font-medium focus:outline-none resize-none overflow-hidden border-none transition-all duration-200"
+              style={{ 
+                height: '200px', // Fixed initial height
+                maxHeight: 'calc(60vh)' // Max height as 60% of viewport
+              }}
               placeholder="Enter your research query..."
               value={state.initialPrompt}
-              onChange={e => setState(prev => ({ ...prev, initialPrompt: e.target.value }))}
+              onChange={e => {
+                setState(prev => ({ ...prev, initialPrompt: e.target.value }));
+                handleTextareaResize();
+              }}
             />
             
-            {/* Bottom controls container */}
-            <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center">
-              <div className="flex gap-3">
-                <div className="relative">
-                  <button
-                    onClick={handleDepthClick}
-                    className="depth-button text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50"
-                  >
-                    <span className="font-semibold tracking-wide">Depth: {state.depth}</span>
-                  </button>
-                  {showDepthInput && (
-                    <div className="depth-input absolute mt-2 bg-white p-3 rounded-lg shadow-lg border min-w-[180px]">
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Select Depth (1-10)
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        className="w-full p-2 border rounded-md text-sm"
-                        value={state.depth}
-                        onChange={e => {
-                          const value = e.target.value === '' ? '' : parseInt(e.target.value);
-                          setState(prev => ({
-                            ...prev,
-                            depth: value === '' ? value : Math.max(1, Math.min(10, value || 1))
-                          }));
-                        }}
-                      />
-                    </div>
-                  )}
+            {/* Controls section - removed border-top */}
+            <div className="absolute bottom-0 left-0 right-0 px-6 py-3 bg-white">
+              <div className="flex justify-between items-center">
+                <div className="flex gap-3">
+                  <div className="relative">
+                    <button
+                      onClick={handleDepthClick}
+                      className="depth-button text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 bg-white"
+                    >
+                      <span className="font-semibold tracking-wide">Depth: {state.depth}</span>
+                    </button>
+                    {showDepthInput && (
+                      <div className="depth-input absolute bottom-full mb-2 left-0 bg-white p-3 rounded-lg shadow-lg border min-w-[180px] z-10">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Select Depth (1-10)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          className="w-full p-2 border rounded-md text-sm"
+                          value={state.depth}
+                          onChange={e => {
+                            const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                            setState(prev => ({
+                              ...prev,
+                              depth: value === '' ? value : Math.max(1, Math.min(10, value || 1))
+                            }));
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      onClick={handleBreadthClick}
+                      className="breadth-button text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 bg-white"
+                    >
+                      <span className="font-semibold tracking-wide">Breadth: {state.breadth}</span>
+                    </button>
+                    {showBreadthInput && (
+                      <div className="breadth-input absolute bottom-full mb-2 left-0 bg-white p-3 rounded-lg shadow-lg border min-w-[180px] z-10">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Select Breadth (1-10)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          className="w-full p-2 border rounded-md text-sm"
+                          value={state.breadth}
+                          onChange={e => {
+                            const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                            setState(prev => ({
+                              ...prev,
+                              breadth: value === '' ? value : Math.max(1, Math.min(10, value || 1))
+                            }));
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="relative">
-                  <button
-                    onClick={handleBreadthClick}
-                    className="breadth-button text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50"
-                  >
-                    <span className="font-semibold tracking-wide">Breadth: {state.breadth}</span>
-                  </button>
-                  {showBreadthInput && (
-                    <div className="breadth-input absolute mt-2 bg-white p-3 rounded-lg shadow-lg border min-w-[180px]">
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Select Breadth (1-10)
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        className="w-full p-2 border rounded-md text-sm"
-                        value={state.breadth}
-                        onChange={e => {
-                          const value = e.target.value === '' ? '' : parseInt(e.target.value);
-                          setState(prev => ({
-                            ...prev,
-                            breadth: value === '' ? value : Math.max(1, Math.min(10, value || 1))
-                          }));
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Submit button with circle background */}
-              <button
-                className={`rounded-full p-3 transition-all ${
-                  state.initialPrompt 
-                    ? 'bg-gray-100 hover:bg-gray-200' 
-                    : 'opacity-0'
-                }`}
-                onClick={handleInitialSubmit}
-                disabled={!state.initialPrompt}
-              >
-                <TbSend2 
-                  size={20} 
-                  className={`transition-colors ${
+                {/* Submit button with new styling */}
+                <button
+                  className={`rounded-full p-3 transition-all ${
                     state.initialPrompt 
-                      ? 'text-gray-800' 
+                      ? 'bg-gray-900 text-white' 
                       : 'text-gray-300'
-                  }`} 
-                />
-              </button>
+                  } hover:bg-gray-100`}
+                  onClick={handleInitialSubmit}
+                  disabled={!state.initialPrompt}
+                >
+                  <TbSend2 size={20} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Log Section */}
+      {/* Updated Log Section */}
       {state.step !== 'input' && (
         <div className="mb-8">
           <div 
             className="mb-2 p-4 border rounded-lg bg-white cursor-pointer"
             onClick={(e) => {
-              // Only toggle if clicking the header area
               const target = e.target as HTMLElement;
               if (!target.closest('.log-content')) {
                 setState(prev => ({ ...prev, showLogs: !prev.showLogs }));
@@ -367,18 +419,26 @@ export default function Home() {
             }}
           >
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 flex-1">
+              {/* Log text container with fade effect */}
+              <div className="flex items-center gap-3 flex-1 min-w-0"> {/* add min-w-0 to allow truncation */}
                 {status.loading ? (
-                  <Spinner className="w-5 h-5" />
+                  <Spinner className="w-5 h-5 flex-shrink-0" />
                 ) : status.complete ? (
-                  <Check className="w-5 h-5 text-green-500" />
+                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
                 ) : null}
-                <span className="text-base font-bold text-gray-800 truncate">
-                  {!state.showLogs && latestLog ? latestLog : status.message || 'Ready to begin research'}
-                </span>
+                <div 
+                  className="relative flex-1 min-w-0" // Container for fade effect
+                >
+                  <div 
+                    className="text-base font-bold text-gray-800 truncate pr-16 before:content-[''] before:absolute before:right-0 before:top-0 before:bottom-0 before:w-16 before:bg-gradient-to-r before:from-transparent before:to-white"
+                  >
+                    {!state.showLogs && latestLog ? latestLog : status.message || 'Ready to begin research'}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Controls with proper spacing */}
+              <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                 {isProcessing && (
                   <button
                     onClick={(e) => {
@@ -398,11 +458,17 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Expanded logs section */}
             {state.showLogs && (
               <div className="mt-4 pt-4 border-t log-content">
-                <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-auto font-mono text-sm">
+                <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto overflow-x-hidden font-mono text-sm">
                   {state.logs.map((log, idx) => (
-                    <div key={idx} className="py-1 text-gray-700">{log}</div>
+                    <div 
+                      key={idx} 
+                      className="py-1 text-gray-700 truncate pr-4 hover:whitespace-normal hover:truncate-none"
+                    >
+                      {log}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -440,7 +506,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Complete Section */}
+      {/* Complete Section with enhanced markdown rendering */}
       {state.step === 'complete' && (
         <div className="space-y-6">
           <div className="flex justify-end gap-4">
@@ -453,36 +519,30 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="prose max-w-none font-medium">
-            <div dangerouslySetInnerHTML={{ __html: state.report }} />
-          </div>
-
-          {/* Sources Accordion */}
-          <div className="border rounded-lg overflow-hidden">
-            <button
-              className="w-full p-4 text-left font-bold flex items-center justify-between bg-gray-50 hover:bg-gray-100"
-              onClick={() => setState(prev => ({ ...prev, showSources: !prev.showSources }))}
+          <div className="prose prose-lg max-w-none font-medium">
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+              components={{
+                h1: ({node, ...props}) => <h1 className="text-4xl font-bold mb-6" {...props} />,
+                h2: ({node, ...props}) => <h2 className="text-3xl font-bold mt-8 mb-4" {...props} />,
+                h3: ({node, ...props}) => <h3 className="text-2xl font-bold mt-6 mb-3" {...props} />,
+                a: ({node, ...props}) => (
+                  <a 
+                    className="text-blue-600 hover:text-blue-800 underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    {...props}
+                  />
+                ),
+                p: ({node, ...props}) => <p className="my-4" {...props} />,
+              }}
             >
-              <span>Sources</span>
-              {state.showSources ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </button>
-            
-            {state.showSources && (
-              <div className="p-4 space-y-4">
-                {state.sources.map((source, idx) => (
-                  <div key={idx} className="border p-4 rounded-lg">
-                    <p className="font-bold">{source.learning}</p>
-                    <p className="text-blue-600 mt-2 font-medium">
-                      <a href={source.source} target="_blank" rel="noopener noreferrer">
-                        {source.source}
-                      </a>
-                    </p>
-                    <p className="text-gray-600 mt-2 italic">{source.quote}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+              {state.report}
+            </ReactMarkdown>
           </div>
+          
+          {/* ...existing sources accordion... */}
         </div>
       )}
     </main>

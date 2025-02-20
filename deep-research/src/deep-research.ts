@@ -1,5 +1,4 @@
 // import pLimit from 'p-limit';
-import { z } from 'zod';
 import { HarmBlockThreshold, HarmCategory, Schema, SchemaType } from '@google/generative-ai';
 
 // import { reportAgentPrompt } from './prompt';
@@ -7,7 +6,13 @@ import { OutputManager } from './output-manager';
 import { generateObject } from './ai/providers';
 
 // Initialize output manager for coordinated console/progress output
-const output = new OutputManager();
+export const output = new OutputManager();
+
+// Allow the server to set the broadcast function
+export function setBroadcastFn(broadcastFn: (message: string) => void) {
+  // Directly update the broadcastFn on the output instance
+  output['broadcastFn'] = broadcastFn;
+}
 
 // Replace console.log with output.log
 function log(...args: any[]) {
@@ -44,28 +49,41 @@ async function generateQueriesWithObjectives(context: string, numQueries: number
     required: ["queries"]
   };
 
-  const { response } = await generateObject({
-    system: `You are the high quality SERP query generating agent. Your role is to analyze the user’s query and followup questions list. Then generate a bunch of short very detailed serp queries that in total entirely summarizes the entire question user is asking. Such that if you scrape the list of websites that you get under each of these queires, there is 100% chance that user's question will be 100% precisely answered in great highly technical detail. Today is ${new Date().toISOString()}. Follow these instructions when responding:
+  try {
+    const { response } = await generateObject({
+      system: `You are the high quality SERP query generating agent. Your role is to analyze the user’s query and followup questions list. Then generate a bunch of short very detailed serp queries that in total entirely summarizes the entire question user is asking. Such that if you scrape the list of websites that you get under each of these queires, there is 100% chance that user's question will be 100% precisely answered in great highly technical detail. Today is ${new Date().toISOString()}. Follow these instructions when responding:
     - Your serp query must be short and 100% targeted and precise that can accurately summarizes a domain of the entire question that user is aksing.
     - Use your reasoning ability to understand the user's question and asking. Then only generate the queries.
     `,
-    prompt: `Given this research context, generate ${numQueries} strategic search queries to find the list of websites we can scrape and get the percise and 100% answer to the question user is asking below.
+      prompt: `Given this research context, generate ${numQueries} strategic search queries to find the list of websites we can scrape and get the percise and 100% answer to the question user is asking below.
 
 CONTEXT:
 ${context}
 `,
-    model: 'gemini-2.0-pro-exp-02-05',
-    generationConfig: {
-      responseSchema: schema
+      model: 'gemini-2.0-pro-exp-02-05',
+      generationConfig: {
+        responseSchema: schema
+      }
+    });
+
+    const result = JSON.parse(response.text());
+
+    if (!result?.queries || !Array.isArray(result.queries) || result.queries.length === 0) {
+      log('Failed to generate valid queries');
+      throw new Error('No valid queries generated');
     }
-  });
 
-  const query_objectives: { queries: QueryWithObjective[] } = JSON.parse(response.text())
+    log(`Generated ${result.queries.length} queries`);
+    return result.queries;
 
-  return query_objectives.queries
+  } catch (error) {
+    log('Error generating queries:', error);
+    throw error;
+  }
 }
 
 async function searchSerpResults(query: string): Promise<SearxResult[]> {
+  output.log(`Searching for: ${query}`);
   try {
     // Improved query formatting
     const formattedQuery = encodeURIComponent(query)
@@ -103,6 +121,7 @@ async function searchSerpResults(query: string): Promise<SearxResult[]> {
 }
 
 async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
+  output.log(`Attempting to scrape ${urls.length} URLs`);
   if (!urls.length) {
     log('No URLs to scrape');
     return [];
@@ -157,6 +176,7 @@ async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
 
 // Update analyzeWebsiteContent to use SchemaType
 async function analyzeWebsiteContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
+  output.log(`Analyzing website: ${content.url}`);
   log(`Started analyzing website: ${content.url}`, "🚀🚀");
   try {
     const schema: Schema = {
@@ -257,7 +277,7 @@ export async function writeFinalReport({
     //@important: No schema for thinking model, it does not support structured json output.
     const schema: Schema = {
       type: SchemaType.STRING,
-      description: "Full Research paper in Markdown format with proper word, line and paragraph spacing."
+      description: "Full Research paper in Markdown format only with proper word, line and paragraph spacing. Do not ouput in any other format other than full rich markdown format. Make new lines and new paragraph and proper formating you know these research paper writing technique in markdown right?"
     };
 
     const { response } = await generateObject({
@@ -290,8 +310,8 @@ IMPORTANT:
 - Don't forget! In the end there must be all the list of websites you considered to while making every point in this research paper.
 `,
       // Later use pro model.
-      model: 'gemini-2.0-pro-exp-02-05',
-      // model: "gemini-2.0-flash",
+      // model: 'gemini-2.0-pro-exp-02-05',
+      model: "gemini-2.0-flash",
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
@@ -314,8 +334,8 @@ IMPORTANT:
       //@important: No schema for thinking model, it does not support structured json output.
     });
 
-    const report = JSON.parse(response.text())
-    return report;
+    // Return the text directly without JSON.parse
+    return response.text();
   } catch (error) {
     log('Error generating report:', error);
     throw new Error('Failed to generate research report');
@@ -328,73 +348,100 @@ export async function deepResearch({
   breadth,
   depth,
   onProgress,
+  signal,
 }: {
   query_to_find_websites: string;
   breadth: number;
   depth: number;
   onProgress?: (progress: ResearchProgress) => void;
+  signal?: AbortSignal;
 }): Promise<ResearchResult> {
-  // Generate queries with objectives
-  const queries = await generateQueriesWithObjectives(
-    query_to_find_websites,
-    breadth
-  );
 
-  const results: TrackedLearning[] = [];
-  const visitedUrls: string[] = [];
+  log('Starting research with:', { depth, breadth });
 
-  // Process each query
-  for (const query of queries) {
-    // Search
-    const searchResults = await searchSerpResults(query.query);
+  try {
+    // Check for abort
+    if (signal?.aborted) {
+      throw new Error('Research aborted');
+    }
 
-    // Scrape
-    const scrapedContents = await scrapeWebsites(
-      searchResults.map(r => r.url)
+    // Generate queries with objectives
+    const queries = await generateQueriesWithObjectives(
+      query_to_find_websites,
+      breadth
     );
 
-    // Analyze each website
-    const analyses = await Promise.all(
-      scrapedContents.map(content =>
-        analyzeWebsiteContent(content, query.objective)
-      )
-    );
+    const results: TrackedLearning[] = [];
+    const visitedUrls: string[] = [];
 
-    // Filter and collect relevant results
-    const relevantAnalyses = analyses.filter(
-      (a): a is WebsiteAnalysis => a !== null && a.meetsObjective
-    );
+    // Process each query
+    for (const query of queries) {
+      // Check for abort
+      if (signal?.aborted) {
+        throw new Error('Research aborted');
+      }
 
-    results.push(...relevantAnalyses.map(a => ({
-      content: a.content,
-      sourceUrl: a.sourceUrl,
-      sourceText: a.sourceText
-    })));
+      // Search
+      if (signal?.aborted) throw new Error('Research aborted');
+      const searchResults = await searchSerpResults(query.query);
 
-    visitedUrls.push(...scrapedContents.map(c => c.url));
+      // Scrape
+      if (signal?.aborted) throw new Error('Research aborted');
+      const scrapedContents = await scrapeWebsites(
+        searchResults.map(r => r.url)
+      );
 
-    // Handle depth if needed
-    if (depth > 1) {
-      const deeperResults = await deepResearch({
-        query_to_find_websites: `
+      // Analyze each website
+      if (signal?.aborted) throw new Error('Research aborted');
+      const analyses = await Promise.all(
+        scrapedContents.map(content =>
+          analyzeWebsiteContent(content, query.objective)
+        )
+      );
+
+      // Filter and collect relevant results
+      const relevantAnalyses = analyses.filter(
+        (a): a is WebsiteAnalysis => a !== null && a.meetsObjective
+      );
+
+      results.push(...relevantAnalyses.map(a => ({
+        content: a.content,
+        sourceUrl: a.sourceUrl,
+        sourceText: a.sourceText
+      })));
+
+      visitedUrls.push(...scrapedContents.map(c => c.url));
+
+      // Handle depth if needed
+      if (depth > 1) {
+        const deeperResults = await deepResearch({
+          query_to_find_websites: `
           Original Context: ${query_to_find_websites}
           Current Findings: ${relevantAnalyses.map(a => a.content).join('\n')}
           Next Research Goal: ${query.objective}
         `,
-        breadth: Math.ceil(breadth / 2),
-        depth: depth - 1,
-        onProgress
-      });
+          breadth: Math.ceil(breadth / 2),
+          depth: depth - 1,
+          onProgress,
+          signal
+        });
 
-      results.push(...deeperResults.learnings);
-      visitedUrls.push(...deeperResults.visitedUrls);
+        results.push(...deeperResults.learnings);
+        visitedUrls.push(...deeperResults.visitedUrls);
+      }
     }
-  }
 
-  return {
-    learnings: results,
-    visitedUrls: [...new Set(visitedUrls)]
-  };
+    return {
+      learnings: results,
+      visitedUrls: [...new Set(visitedUrls)]
+    };
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new Error('Research aborted');
+    }
+    log('Research error:', error);
+    throw error;
+  }
 }
 
 
