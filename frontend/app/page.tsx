@@ -77,7 +77,7 @@ export default function Home() {
   }, [socket]);
 
   useEffect(() => {
-    const newSocket = io('http://127.0.0.1:3001', {
+    const newSocket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
       withCredentials: true,
       transports: ['websocket']
     });
@@ -174,7 +174,7 @@ export default function Home() {
         breadth: prev.breadth || 1
       }));
       
-      const response = await fetch('http://127.0.0.1:3001/api/research/questions', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -210,7 +210,7 @@ export default function Home() {
       setState(prev => ({ ...prev, step: 'processing' }));
       setIsProcessing(true);
       
-      const response = await fetch('http://localhost:3001/api/research/start', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

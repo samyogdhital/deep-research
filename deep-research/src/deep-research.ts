@@ -84,12 +84,14 @@ ${context}
 
 async function searchSerpResults(query: string): Promise<SearxResult[]> {
   output.log(`Searching for: ${query}`);
+  output.log(`Connected with Searxng at: ${process.env.SEARXNG_BASE_URL}`);
+
   try {
     // Improved query formatting
     const formattedQuery = encodeURIComponent(query)
 
     const response = await fetch(
-      `http://${process.env.NODE_ENV === 'production' ? `searxng` : 'localhost'}:8080/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0`,
+      `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0`,
       {
         method: "GET",
         headers: {
@@ -132,7 +134,7 @@ async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
   const results = await Promise.all(urls.map(async url => {
     try {
       // Fix: Use correct docker host internal URL
-      const response = await fetch(`http://${process.env.NODE_ENV === 'production' ? 'firecrawl-api' : `127.0.0.1`}:3002/v1/scrape`, {
+      const response = await fetch(`${process.env.FIRECRAWL_BASE_URL}/v1/scrape`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.FIRECRAWL_KEY}`,

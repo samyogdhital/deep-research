@@ -9,15 +9,17 @@ import * as fs from 'fs/promises';
 import path from 'path';
 import { setBroadcastFn } from '../src/deep-research';
 
+import { config } from 'dotenv';
+
+config()
 const app = express();
 const httpServer = createServer(app);
 
-// Update OutputManager to use socket.io
-let globalSocket: Server;
+console.log("✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅", process.env.FRONTEND_BASE_URL, "😄😄😄😄😄😄😄😄😄😄")
 
 const io = new Server(httpServer, {
     cors: {
-        origin: "http://host.docker.internal:3000",  // Frontend URL
+        origin: process.env.FRONTEND_BASE_URL,  // Frontend URL
         methods: ["GET", "POST"],
         credentials: true,
         allowedHeaders: ["Content-Type"]
@@ -65,7 +67,7 @@ io.on('connection', (socket) => {
 });
 
 app.use(cors({
-    origin: "http://localhost:3000",
+    origin: process.env.FRONTEND_BASE_URL,
     credentials: true
 }));
 app.use(express.json());

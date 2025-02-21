@@ -110,7 +110,7 @@ services:
     networks:
       - searxng
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
@@ -144,6 +144,9 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
+    volumes:
+      - ./frontend/.env:/app/frontend/.env
+      - ./deep-research/.env.local:/app/deep-research/.env.local
     restart: always
     networks:
       - backend
