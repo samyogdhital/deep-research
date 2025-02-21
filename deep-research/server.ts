@@ -2,12 +2,12 @@ import express from 'express';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 import cors from 'cors';
-import { generateFeedback } from '../src/feedback';
-import { deepResearch, writeFinalReport } from '../src/deep-research';
-import { OutputManager } from '../src/output-manager';
+import { generateFeedback } from './src/feedback';
+import { deepResearch, writeFinalReport } from './src/deep-research';
+import { OutputManager } from './src/output-manager';
 import * as fs from 'fs/promises';
 import path from 'path';
-import { setBroadcastFn } from '../src/deep-research';
+import { setBroadcastFn } from './src/deep-research';
 
 import { config } from 'dotenv';
 
@@ -75,14 +75,14 @@ app.use(express.json());
 app.post('/api/research/questions', async (req, res) => {
     try {
         broadcast('Generating follow-up questions...');
-        const { prompt } = req.body;
+        const { prompt, followupQuestions } = req.body;
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
 
         const questions = await generateFeedback({
             query: prompt,
-            numQuestions: 5
+            numQuestions: followupQuestions
         });
 
         if (!questions || !Array.isArray(questions)) {

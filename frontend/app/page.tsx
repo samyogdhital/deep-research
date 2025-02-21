@@ -23,7 +23,8 @@ type ResearchState = {
   initialPrompt: string;
   depth: number;
   breadth: number;
-  followUpQuestions: string[];
+  followupQuestions: number;
+  generatedFollowUpQuestions: string[];
   followUpAnswers: Record<string, string>;
   logs: string[];
   showLogs: boolean;
@@ -42,13 +43,16 @@ export default function Home() {
     initialPrompt: '',
     depth: 1, // Default to 1
     breadth: 1, // Default to 1
-    followUpQuestions: [],
+    followupQuestions: 5, // Default to 5
+    generatedFollowUpQuestions: [],
     followUpAnswers: {},
     logs: [],
     showLogs: false,
     report: '',
     sources: []
   });
+  console.log(state.depth, state.breadth, state.followupQuestions)
+
 
   const [status, setStatus] = useState<{
     loading: boolean;
@@ -67,6 +71,8 @@ export default function Home() {
   // Add state for input visibility
   const [showDepthInput, setShowDepthInput] = useState(false);
   const [showBreadthInput, setShowBreadthInput] = useState(false);
+  const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
+
 
   const stopResearch = useCallback(() => {
     if (socket) {
@@ -148,6 +154,10 @@ export default function Home() {
       if (!target.closest('.breadth-input') && !target.closest('.breadth-button')) {
         setShowBreadthInput(false);
       }
+
+      if (!target.closest('.followups-input') && !target.closest('.followups-button')) {
+        setShowFollowUpsInput(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -156,31 +166,40 @@ export default function Home() {
 
   // Handle parameter button clicks
   const handleDepthClick = () => {
-    setShowDepthInput(true);
     setShowBreadthInput(false);
+    setShowDepthInput(true);
+    setShowFollowUpsInput(false)
   };
 
   const handleBreadthClick = () => {
     setShowBreadthInput(true);
     setShowDepthInput(false);
+    setShowFollowUpsInput(false)
+  };
+
+  const handleFollowUpsClick = () => {
+    setShowBreadthInput(false);
+    setShowDepthInput(false);
+    setShowFollowUpsInput(true)
   };
 
   const handleInitialSubmit = async () => {
     try {
+      
       setState(prev => ({ 
         ...prev, 
         step: 'processing',
-        depth: prev.depth || 1,
-        breadth: prev.breadth || 1
       }));
-      
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: state.initialPrompt
+          prompt: state.initialPrompt,
+          followupQuestions: state.followupQuestions
         })
       });
+
       
       if (!response.ok) {
         const error = await response.json();
@@ -195,7 +214,7 @@ export default function Home() {
       setState(prev => ({
         ...prev,
         step: 'follow-up',
-        followUpQuestions: data.questions
+        generatedFollowUpQuestions: data.questions
       }));
     } catch (error) {
       console.error('Error:', error);
@@ -326,6 +345,7 @@ export default function Home() {
                 <div className="flex gap-3">
                   <div className="relative">
                     <Button
+                      title='Research Depth'
                       variant="outline"
                       onClick={handleDepthClick}
                       className="depth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
@@ -367,6 +387,7 @@ export default function Home() {
 
                   <div className="relative">
                     <Button
+                      title='Research Breadth'
                       variant="outline"
                       onClick={handleBreadthClick}
                       className="breadth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
@@ -405,10 +426,53 @@ export default function Home() {
                       </div>
                     )}
                   </div>
+
+                  <div className="relative">
+                    <Button
+                      title='Follow Up Questions'
+                      variant="outline"
+                      onClick={handleFollowUpsClick}
+                      className="followups-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
+                    >
+                      Follow Ups: {state.followupQuestions || 5}
+                    </Button>
+                    {showFollowUpsInput && (
+                      <div className="followups-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10">
+                        <label className="block text-sm font-semibold mb-2 dark:text-white">
+                          Select Breadth (1-10)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          className="w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                          value={state.followupQuestions === null ? '' : state.followupQuestions}
+                          onChange={e => {
+                            const inputValue = e.target.value;
+                            if (inputValue === '') {
+                              setState(prev => ({ ...prev, followupQuestions: null }));
+                            } else {
+                              const value = parseInt(inputValue);
+                              setState(prev => ({
+                                ...prev,
+                                followupQuestions: Math.max(1, Math.min(10, value))
+                              }));
+                            }
+                          }}
+                          onBlur={() => {
+                            if (state.followupQuestions === null) {
+                              setState(prev => ({ ...prev, followupQuestions: 1 }));
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Circular submit button */}
                 <Button
+                  title='Submit Prompt'
                   disabled={!state.initialPrompt}
                   onClick={handleInitialSubmit}
                   className={`rounded-full w-12 h-12 p-0 flex items-center justify-center transition-colors
@@ -463,7 +527,7 @@ export default function Home() {
           <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">
             Follow-up Questions
           </h2>
-          {state.followUpQuestions.map((question, idx) => (
+          {state.generatedFollowUpQuestions.map((question, idx) => (
             <div key={idx} className="space-y-2">
               <p className="font-bold text-gray-700 dark:text-gray-300">{question}</p>
               <textarea

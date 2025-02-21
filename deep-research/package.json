@@ -3,12 +3,8 @@
   "version": "0.0.1",
   "main": "index.ts",
   "scripts": {
-    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
-    "tsx": "tsx --env-file=.env.local",
-    "start": "tsx --env-file=.env.local src/run.ts",
-    "docker": "tsx src/run.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "api": "tsx --env-file=.env.local api/server.ts"
+    "prod": "tsx --env-file=.env.prod server.ts",
+    "dev": "tsx watch --env-file=.env.local server.ts"
   },
   "author": "",
   "license": "ISC",

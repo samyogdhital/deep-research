@@ -60,7 +60,7 @@ async function generateQueriesWithObjectives(context: string, numQueries: number
 CONTEXT:
 ${context}
 `,
-      model: 'gemini-2.0-pro-exp-02-05',
+      model: process.env.QUESTION_GENERATING_MODEL as string,
       generationConfig: {
         responseSchema: schema
       }
@@ -225,7 +225,7 @@ Return:
 2. extractedInfo: important key findings highly relevent to the objective.
 3. supportingQuote: any supporting quote that directly serve the objective.`,
 
-      model: 'gemini-2.0-flash-lite-preview-02-05',
+      model: process.env.WEBSITE_ANALYZING_MODEL as string,
       generationConfig: {
         responseSchema: schema
       }
@@ -319,8 +319,7 @@ IMPORTANT:
 - Don't forget! In the end there must be all the list of websites you considered to while making every point in this research paper.
 `,
       // Later use pro model.
-      // model: 'gemini-2.0-pro-exp-02-05',
-      model: "gemini-2.0-flash",
+      model: process.env.RESEARCH_WRITING_MODEL as string,
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,

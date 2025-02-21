@@ -142,7 +142,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend/.env:/app/.env
+      - ./frontend/.env.prod:/app/.env.prod
     networks:
       - backend
 
@@ -154,7 +154,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./deep-research/.env.local:/app/.env.local
+      - ./deep-research/.env.prod:/app/.env.prod
     networks:
       - backend
 
