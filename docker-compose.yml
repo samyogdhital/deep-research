@@ -59,7 +59,7 @@ services:
       - playwright-service
     ports:
       - "3002:3002"
-    command: [ "pnpm", "run", "start:production" ]
+    command: ["pnpm", "run", "start:production"]
 
   worker:
     <<: *common-service
@@ -93,7 +93,7 @@ services:
       - redis
       - playwright-service
       - api
-    command: [ "pnpm", "run", "workers" ]
+    command: ["pnpm", "run", "workers"]
 
   redis:
     container_name: firecrawl-redis
@@ -102,13 +102,12 @@ services:
       - backend
     command: redis-server --bind 0.0.0.0
 
-
-# --------------- Searxng
+  # --------------- Searxng
   searxng:
     container_name: searxng
     image: searxng/searxng:latest
     networks:
-      - searxng
+      - backend
     ports:
       - "8080:8080"
     volumes:
@@ -128,31 +127,38 @@ services:
     container_name: tor
     image: dperson/torproxy:latest
     networks:
-      - searxng
+      - backend
     ports:
       - "9050:9050"
     command: -p 9050
     extra_hosts:
-    - "host.docker.internal:host-gateway"
+      - "host.docker.internal:host-gateway"
 
-# --------------- Deep Research
-  app:
-    container_name: deep-research-agent
-    build: .
+  research-frontend:
+    container_name: deep-research-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
-      - "3001:3001"
-    environment:
-      - NODE_ENV=production
     volumes:
-      - ./frontend/.env:/app/frontend/.env
-      - ./deep-research/.env.local:/app/deep-research/.env.local
-    restart: always
+      - ./frontend/.env:/app/.env
     networks:
       - backend
-      - searxng
+
+  research-api:
+    container_name: deep-research-api
+    build:
+      context: ./deep-research
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./deep-research/.env.local:/app/.env.local
+    networks:
+      - backend
 
 networks:
   backend:
     driver: bridge
-  searxng:
+  # searxng:
