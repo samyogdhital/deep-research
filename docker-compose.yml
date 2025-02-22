@@ -10,6 +10,8 @@ x-common-service: &common-service
     - backend
   extra_hosts:
     - "host.docker.internal:host-gateway"
+  profiles:
+    - infra
 
 services:
   playwright-service:
@@ -101,6 +103,8 @@ services:
     networks:
       - backend
     command: redis-server --bind 0.0.0.0
+    profiles:
+      - infra
 
   # --------------- Searxng
   searxng:
@@ -122,6 +126,8 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+    profiles:
+      - infra
 
   tor:
     container_name: tor
@@ -133,6 +139,8 @@ services:
     command: -p 9050
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    profiles:
+      - infra
 
   research-frontend:
     container_name: deep-research-frontend
@@ -145,6 +153,8 @@ services:
       - ./frontend/.env.prod:/app/.env.prod
     networks:
       - backend
+    profiles:
+      - web
 
   research-api:
     container_name: deep-research-api
@@ -157,6 +167,8 @@ services:
       - ./deep-research/.env.prod:/app/.env.prod
     networks:
       - backend
+    profiles:
+      - web      
 
 networks:
   backend:

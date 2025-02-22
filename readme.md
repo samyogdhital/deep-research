@@ -1,4 +1,4 @@
 Installation of this mega project.
 
-`docker compose up -d`
-`cd deep-research; npm i; npm run start`
+`docker compose --profile infra web up`
+`docker compose --profile * up`
