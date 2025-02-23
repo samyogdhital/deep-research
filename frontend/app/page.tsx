@@ -269,13 +269,23 @@ export default function Home() {
 
   const handleResearchStart = async () => {
     try {
+      setState(prev => ({ ...prev, step: 'processing' }));
+      setIsProcessing(true);
+
+      // Clear follow-up questions when research starts
+      setState(prev => ({
+        ...prev,
+        generatedFollowUpQuestions: [],
+        followUpAnswers: {}
+      }));
+
       const researchId = crypto.randomUUID();
 
       // Add to ongoing research
       useResearchStore.getState().addResearch({
         id: researchId,
-        timestamp: Date.now(),
-        prompt: state.initialPrompt
+        prompt: state.initialPrompt,
+        timestamp: Date.now()
       });
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`, {

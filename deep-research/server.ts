@@ -268,10 +268,16 @@ ${Object.entries(followUpAnswers)
             }
         };
 
+        // Broadcast to all clients that reports need updating
+        io.emit('reports-updated');
+        io.emit('research-completed', {
+            id: researchId,
+            report_title: report.report_title
+        });
+
         // Clean up when done
         ongoingResearch.delete(researchId);
         io.emit('ongoing-research-update', Array.from(ongoingResearch.values()));
-        io.emit('research-completed', { id: researchId });
 
         broadcast('Deep Research complete.');
         res.json(response);

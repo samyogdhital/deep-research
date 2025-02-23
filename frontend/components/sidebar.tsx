@@ -25,6 +25,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { OngoingResearch } from './ongoing-research';
+import { useResearchStore } from '@/lib/research-store';
 
 interface ResearchReport {
     id: string;
@@ -52,7 +53,8 @@ interface EditingState {
 export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
-    const [reports, setReports] = useState<ResearchReport[]>([]);
+    const reports = useResearchStore((state) => state.reports);
+    const refreshReports = useResearchStore((state) => state.refreshReports);
     const params = useParams();
     const pathname = usePathname();
     const { theme, setTheme } = useTheme();
@@ -65,19 +67,10 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
     }, []);
 
     useEffect(() => {
-        const loadReports = async () => {
-            try {
-                // Only fetch if we're showing reports
-                if (isExpanded) {
-                    const data = await getAllReports();
-                    setReports(data);
-                }
-            } catch (error) {
-                console.error('Failed to load reports:', error);
-            }
-        };
-        loadReports();
-    }, [isExpanded]); // Only reload when sidebar expands
+        if (isExpanded) {
+            refreshReports();
+        }
+    }, [isExpanded, refreshReports]);
 
     const getThemeDisplay = (currentTheme: string | undefined) => {
         switch (currentTheme?.toLowerCase()) {
@@ -91,7 +84,8 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
         const now = Date.now();
         const dayInMs = 86400000; // 24 hours in milliseconds
 
-        return reports.reduce((acc: CategoryReports, report) => {
+        // First categorize the reports
+        const categories = reports.reduce((acc: CategoryReports, report) => {
             const diff = now - report.timestamp;
 
             if (diff < dayInMs) {
@@ -103,6 +97,13 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
             }
             return acc;
         }, { today: [], week: [], month: [] });
+
+        // Then sort each category by timestamp in descending order (newest first)
+        return {
+            today: categories.today.sort((a, b) => b.timestamp - a.timestamp),
+            week: categories.week.sort((a, b) => b.timestamp - a.timestamp),
+            month: categories.month.sort((a, b) => b.timestamp - a.timestamp)
+        };
     };
 
     const handleRename = (report: ResearchReport) => {
@@ -118,10 +119,7 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
             try {
                 await updateReportTitle(editing.id, editing.value);
                 // Refresh reports list
-                const data = await getAllReports();
-                if (data?.length) {
-                    setReports(data.filter(r => r.report_title).sort((a, b) => b.timestamp - a.timestamp));
-                }
+                refreshReports();
             } catch (err) {
                 console.error('Failed to rename report:', err);
             }
@@ -138,10 +136,7 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
             try {
                 await deleteReport(deletePrompt);
                 // Refresh reports list
-                const data = await getAllReports();
-                if (data?.length) {
-                    setReports(data.filter(r => r.report_title).sort((a, b) => b.timestamp - a.timestamp));
-                }
+                refreshReports();
                 // Navigate to homepage after successful delete
                 router.push('/');
             } catch (err) {
@@ -155,7 +150,7 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
         if (confirmed) {
             try {
                 await clearAllReports();
-                setReports([]);
+                refreshReports();
                 router.push('/');
             } catch (err) {
                 console.error('Failed to clear reports:', err);
@@ -292,77 +287,90 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
                         Research History
                     </h2>
 
-                    {/* Add OngoingResearch component */}
                     <OngoingResearch />
 
                     {/* Categorized reports */}
-                    <div className="space-y-6">
+                    <div className="space-y-8"> {/* Increased space between categories */}
                         {categorizeReports(reports).today.length > 0 && (
                             <div className="space-y-1">
-                                <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">Today</h3>
-                                {categorizeReports(reports).today.map((report) => (
-                                    <Link
-                                        key={report.id}
-                                        href={`/report/${report.id}`}
-                                        className={`block px-2 py-1.5 rounded transition-colors
+                                <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-3">
+                                    Today
+                                </h3>
+                                <div className="space-y-2 mb-2"> {/* Added gap between items and bottom margin */}
+                                    {categorizeReports(reports).today.map((report) => (
+                                        <Link
+                                            key={report.id}
+                                            href={`/report/${report.id}`}
+                                            className={`block px-2 py-1.5 rounded transition-colors
                       ${params.slug === report.id
-                                                ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
-                                                : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                        onClick={(e) => {
-                                            if (editing.id === report.id) {
-                                                e.preventDefault();
-                                            }
-                                        }}
-                                    >
-                                        {renderReportTitle(report)}
-                                    </Link>
-                                ))}
+                                                    ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
+                                                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            onClick={(e) => {
+                                                if (editing.id === report.id) {
+                                                    e.preventDefault();
+                                                }
+                                            }}
+                                        >
+                                            {renderReportTitle(report)}
+                                        </Link>
+                                    ))}
+                                </div>
                             </div>
                         )}
 
+                        {/* Previous 7 Days with same spacing */}
                         {categorizeReports(reports).week.length > 0 && (
                             <div className="space-y-1">
-                                <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">Previous 7 Days</h3>
-                                {categorizeReports(reports).week.map((report) => (
-                                    <Link
-                                        key={report.id}
-                                        href={`/report/${report.id}`}
-                                        className={`block px-2 py-1.5 rounded transition-colors
+                                <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-3">
+                                    Previous 7 Days
+                                </h3>
+                                <div className="space-y-2 mb-2">
+                                    {categorizeReports(reports).week.map((report) => (
+                                        <Link
+                                            key={report.id}
+                                            href={`/report/${report.id}`}
+                                            className={`block px-2 py-1.5 rounded transition-colors
                       ${params.slug === report.id
-                                                ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
-                                                : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                        onClick={(e) => {
-                                            if (editing.id === report.id) {
-                                                e.preventDefault();
-                                            }
-                                        }}
-                                    >
-                                        {renderReportTitle(report)}
-                                    </Link>
-                                ))}
+                                                    ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
+                                                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            onClick={(e) => {
+                                                if (editing.id === report.id) {
+                                                    e.preventDefault();
+                                                }
+                                            }}
+                                        >
+                                            {renderReportTitle(report)}
+                                        </Link>
+                                    ))}
+                                </div>
                             </div>
                         )}
 
+                        {/* Previous 30 Days with same spacing */}
                         {categorizeReports(reports).month.length > 0 && (
                             <div className="space-y-1">
-                                <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">Previous 30 Days</h3>
-                                {categorizeReports(reports).month.map((report) => (
-                                    <Link
-                                        key={report.id}
-                                        href={`/report/${report.id}`}
-                                        className={`block px-2 py-1.5 rounded transition-colors
+                                <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-3">
+                                    Previous 30 Days
+                                </h3>
+                                <div className="space-y-2 mb-2">
+                                    {categorizeReports(reports).month.map((report) => (
+                                        <Link
+                                            key={report.id}
+                                            href={`/report/${report.id}`}
+                                            className={`block px-2 py-1.5 rounded transition-colors
                       ${params.slug === report.id
-                                                ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
-                                                : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                        onClick={(e) => {
-                                            if (editing.id === report.id) {
-                                                e.preventDefault();
-                                            }
-                                        }}
-                                    >
-                                        {renderReportTitle(report)}
-                                    </Link>
-                                ))}
+                                                    ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
+                                                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            onClick={(e) => {
+                                                if (editing.id === report.id) {
+                                                    e.preventDefault();
+                                                }
+                                            }}
+                                        >
+                                            {renderReportTitle(report)}
+                                        </Link>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>

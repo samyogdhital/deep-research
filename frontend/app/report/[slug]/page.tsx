@@ -24,17 +24,19 @@ const getReport = async (id: string) => {
   return response.json();
 };
 
-export default async function ReportPage({
-  params
-}: {
-  params: { slug: string }
-}) {
+export default async function ReportPage(
+  props: {
+    params: Promise<{ slug: string }>
+  }
+) {
+  const params = await props.params;
   const report = await getReport(params.slug);
   return <ReportContent report={report} />;
 }
 
 // Add error boundary page
-export function generateMetadata({ params }: { params: { slug: string } }) {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   return {
     title: `Research Report - ${params.slug}`,
   };
