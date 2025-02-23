@@ -284,7 +284,7 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
                 {/* Reports list with categories */}
                 <div className="flex-1 px-4 pt-6 border-t dark:border-gray-700">
                     <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-6 px-2">
-                        Research History
+                        Reports
                     </h2>
 
                     <OngoingResearch />
