@@ -41,26 +41,14 @@ export function LayoutWrapper({ children, initialExpanded }: Props) {
       {/* Reports section with shimmer */}
       <div className="flex-1 px-4 pt-6 border-t dark:border-gray-700">
         <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-6 px-2">
-          Research History
+          Reports
         </h2>
         <div className="space-y-8">
           {/* Today's reports skeleton */}
           <div className="space-y-1">
             <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-3">Today</h3>
             <div className="space-y-2">
-              {[1, 2].map((i) => (
-                <div key={i} className="px-2 py-1.5">
-                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 animate-pulse" />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Previous 7 days skeleton */}
-          <div className="space-y-1">
-            <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-3">Previous 7 Days</h3>
-            <div className="space-y-2">
-              {[1, 2].map((i) => (
+              {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="px-2 py-1.5">
                   <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 animate-pulse" />
                 </div>
