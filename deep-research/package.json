@@ -23,6 +23,7 @@
     "@mendable/firecrawl-js": "^1.16.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "gpt-tokenizer": "^2.8.1",
     "js-tiktoken": "^1.0.17",
     "lodash-es": "^4.17.21",
     "p-limit": "^6.2.0",

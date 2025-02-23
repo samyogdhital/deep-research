@@ -30,7 +30,14 @@ const io = new Server(httpServer, {
 let currentResearch: {
     controller: AbortController;
     cleanup: () => void;
+    sourcesLog?: {
+        queries: any[];
+        lastUpdated: string;
+    };
 } | null = null;
+
+// Add type for research phases
+type ResearchPhase = 'idle' | 'collecting-sources' | 'analyzing' | 'generating-report';
 
 // Update broadcast function to handle all logging
 function broadcast(message: string) {
@@ -58,6 +65,12 @@ io.on('connection', (socket) => {
             currentResearch.controller.abort();
             currentResearch.cleanup();
             currentResearch = null;
+        }
+    });
+
+    socket.on('request-sources', () => {
+        if (currentResearch?.sourcesLog) {
+            socket.emit('sources-update', currentResearch.sourcesLog);
         }
     });
 
@@ -115,11 +128,17 @@ app.post('/api/research/start', async (req, res) => {
             controller,
             cleanup: () => {
                 // Cleanup logic here
+            },
+            sourcesLog: {
+                queries: [],
+                lastUpdated: new Date().toISOString()
             }
         };
 
         isResearchStopped = false;
         broadcast('Starting research process...');
+        // Emit research phase update
+        io.emit('research-phase', 'collecting-sources');
         const { prompt, depth, breadth, followUpAnswers } = req.body;
 
         // Validate input
@@ -147,10 +166,26 @@ ${Object.entries(followUpAnswers)
             signal,
             onProgress: (progress) => {
                 output.updateProgress(progress);  // This will now broadcast progress
+            },
+            onSourceUpdate: (queryData) => {
+                if (currentResearch?.sourcesLog) {
+                    // Add timestamp to track real-time updates
+                    const updatedQuery = {
+                        ...queryData,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    currentResearch.sourcesLog.queries.push(updatedQuery);
+                    currentResearch.sourcesLog.lastUpdated = new Date().toISOString();
+
+                    // Emit source update immediately
+                    io.emit('sources-update', currentResearch.sourcesLog);
+                }
             }
         });
 
-        currentResearch = null;
+        // Update phase before report generation
+        io.emit('research-phase', 'generating-report');
         broadcast('Generating final report...');
 
         // Generate final report
@@ -160,35 +195,57 @@ ${Object.entries(followUpAnswers)
             visitedUrls: result.visitedUrls
         });
 
-        // Save report to file before sending response
-        await fs.writeFile(
-            path.join(process.cwd(), 'research.md'),
-            report
-        );
+        if (!report) {
+            throw new Error('Failed to generate report');
+        }
 
-        // Add this broadcast before sending response
+        // Fix: Ensure we're writing string content to files
+        await Promise.all([
+            fs.writeFile(
+                path.join(process.cwd(), 'research.md'),
+                report.report, // Write the report content string
+                'utf-8'
+            ),
+            fs.writeFile(
+                path.join(process.cwd(), 'research-data.json'),
+                JSON.stringify({
+                    learnings: result.learnings,
+                    visitedUrls: result.visitedUrls,
+                    timestamp: new Date().toISOString()
+                }, null, 2),
+                'utf-8'
+            )
+        ]);
+
         broadcast('Deep Research complete.');
 
-        // Send raw markdown without JSON stringifying
         res.json({
-            report: report.replace(/\\n/g, '\n'), // Fix escaped newlines
+            report: report.report.replace(/\\n/g, '\n'),
             sources: result.learnings.map(l => ({
                 learning: l.content,
                 source: l.sourceUrl,
                 quote: l.sourceText
-            }))
+            })),
+            sourcesLog: currentResearch.sourcesLog // Include final sources log in response
         });
 
     } catch (error) {
+        // Reset phase on error
+        io.emit('research-phase', 'idle');
+        // Enhanced error handling
         if (error.name === 'AbortError') {
             broadcast('Research process stopped');
             res.status(200).json({ status: 'stopped' });
         } else {
             broadcast(`Error: ${error.message}`);
             console.error('Research error:', error);
+
+            // Ensure error output is available
+            const errorFile = path.join(process.cwd(), 'error-output.md');
             res.status(500).json({
                 error: 'Research failed',
-                details: error.message
+                details: error.message,
+                errorOutput: `See ${errorFile} for full error details`
             });
         }
     }

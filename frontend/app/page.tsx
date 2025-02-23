@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ChevronDown,  Download, Check,  ArrowRight } from 'lucide-react';
 import { FaRegStopCircle} from "react-icons/fa";
@@ -35,7 +35,29 @@ type ResearchState = {
     quote: string;
   }>;
   showSources?: boolean;
+  sourcesLog: ResearchSourcesLog;
 };
+
+type SerpQueryResult = {
+  query: string;
+  objective: string;
+  successfulScrapes: Array<{
+    url: string;
+    extractedContent: string;
+  }>;
+  failedScrapes: Array<{
+    url: string;
+    error: string;
+  }>;
+};
+
+type ResearchSourcesLog = {
+  queries: SerpQueryResult[];
+  lastUpdated: string;
+};
+
+// Add new types
+type ResearchPhase = 'idle' | 'collecting-sources' | 'analyzing' | 'generating-report';
 
 export default function Home() {
   const [state, setState] = useState<ResearchState>({
@@ -49,10 +71,12 @@ export default function Home() {
     logs: [],
     showLogs: false,
     report: '',
-    sources: []
+    sources: [],
+    sourcesLog: { // Add default value for sourcesLog
+      queries: [],
+      lastUpdated: new Date().toISOString()
+    }
   });
-  console.log(state.depth, state.breadth, state.followupQuestions)
-
 
   const [status, setStatus] = useState<{
     loading: boolean;
@@ -73,6 +97,8 @@ export default function Home() {
   const [showBreadthInput, setShowBreadthInput] = useState(false);
   const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
 
+  // Add new state for research phase
+  const [researchPhase, setResearchPhase] = useState<ResearchPhase>('idle');
 
   const stopResearch = useCallback(() => {
     if (socket) {
@@ -137,6 +163,21 @@ export default function Home() {
         logs: [...prev.logs, `Connection error: ${error.message}`]
       }));
     });
+
+    newSocket.on('sources-update', (sourcesLog: ResearchSourcesLog) => {
+      setState(prev => ({
+        ...prev,
+        sourcesLog
+      }));
+    });
+
+    // Add new event listener for research phase updates
+    newSocket.on('research-phase', (phase: ResearchPhase) => {
+      setResearchPhase(phase);
+    });
+
+    // Request initial sources data
+    newSocket.emit('request-sources');
 
     return () => {
       console.log('Cleaning up socket connection');
@@ -309,6 +350,11 @@ export default function Home() {
       textarea.style.height = '150px';
     }
   }, [state.initialPrompt]);
+
+  // Helper function to determine if sources should be shown
+  const shouldShowSources = useMemo(() => {
+    return state.step === 'processing' || state.step === 'complete';
+  }, [state.step]);
 
   return (
     <main className="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col">
@@ -595,6 +641,79 @@ export default function Home() {
               {state.report}
             </ReactMarkdown>
           </div>
+        </div>
+      )}
+
+      {state.step === 'processing' && (
+        <div className="space-y-6">
+          {/* Logs accordion (collapsed by default) */}
+          <Accordion type="single" collapsible>
+            {/* ...existing logs accordion... */}
+          </Accordion>
+
+          {/* Sources accordion (expanded by default) */}
+          {shouldShowSources && (
+            <Accordion type="single" collapsible defaultValue="sources">
+              <AccordionItem value="sources">
+                <AccordionTrigger className="text-xl font-bold">
+                  All Sources
+                </AccordionTrigger>
+                <AccordionContent>
+                  {state.sourcesLog.queries.map((query, idx) => (
+                    <Accordion key={idx} type="single" collapsible className="ml-4 mb-4">
+                      <AccordionItem value={`query-${idx}`}>
+                        <AccordionTrigger className="text-lg font-semibold">
+                          {query.query} - {query.objective}
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          {/* Successfully scraped section */}
+                          {query.successfulScrapes.length > 0 && (
+                            <div className="mb-4">
+                              <h4 className="font-medium mb-2 text-green-600 dark:text-green-400">
+                                Successfully Scraped ({query.successfulScrapes.length})
+                              </h4>
+                              <ol className="list-decimal ml-4 space-y-4">
+                                {query.successfulScrapes.map((scrape, sIdx) => (
+                                  <li key={sIdx} className="text-gray-800 dark:text-gray-200">
+                                    <a href={scrape.url} 
+                                       target="_blank" 
+                                       rel="noopener noreferrer"
+                                       className="text-blue-600 dark:text-blue-400 hover:underline"
+                                    >
+                                      {scrape.url}
+                                    </a>
+                                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                                      {scrape.extractedContent}
+                                    </p>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          )}
+                          
+                          {/* Failed scrapes section */}
+                          {query.failedScrapes.length > 0 && (
+                            <div>
+                              <h4 className="font-medium mb-2 text-red-500">
+                                Failed to Scrape ({query.failedScrapes.length})
+                              </h4>
+                              <ul className="list-disc ml-4 space-y-2">
+                                {query.failedScrapes.map((fail, fIdx) => (
+                                  <li key={fIdx} className="text-sm text-gray-500">
+                                    {fail.url} - {fail.error}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  ))}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
         </div>
       )}
     </main>

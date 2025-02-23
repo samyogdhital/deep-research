@@ -1,0 +1,19 @@
+{
+  "learnings": [
+    {
+      "content": "Spaceborne Computer-2 is an off-the-shelf server composed of HPE Edgeline Converged EL4000 Edge and HPE ProLiant machines with an Nvidia T4 GPU to support AI workloads. Spaceborne Computer-2 mission launched in February 2021. The Spaceborne computer has 20 solid state disk drives, of which nine had failed over the course of the mission. Building data centers in space involves unlimited size, sustainable cooling, faster data transfer speeds, with special equipment needed for extreme temperatures, radiation, and micrometeoroids. Space shuttles used a failover clustering environment for computer reliability. LEO satellites will reduce latency. Axiom Space is developing an orbital data center that will provide ",
+      "sourceUrl": "https://www.datacenterknowledge.com/data-center-hardware/space-is-the-final-frontier-for-data-centers, https://www.datacenterknowledge.com/data-center-hardware/space-is-the-final-frontier-for-data-centers, https://www.linkedin.com/pulse/data-centers-space-kaneshwaran-govindasamy-sx6nc, https://www.datacenterknowledge.com/data-center-hardware/space-is-the-final-frontier-for-data-centers",
+      "sourceText": "Last year marked the first time humanity deployed a conventional data center in space. The HPE Spaceborne Computer-2 – a set of HPE Edgeline Converged EL4000 Edge and HPE ProLiant machines, each with an Nvidia T4 GPU to support AI workloads – was sent to the International Space Station in February of 2021. | The space-based system had 20 solid state disk drives, of which nine had failed over the course of the mission. | Building data centers in space is technically possible, but it's not easy or cheap. However, as space technology advances and launch costs decrease, it could become a more realistic option in the future. | Space shuttles used a failover clustering environment for computer reliability."
+    }
+  ],
+  "visitedUrls": [
+    "https://www.archdaily.com/tag/data-center",
+    "https://www.datacenterknowledge.com/data-center-hardware/space-is-the-final-frontier-for-data-centers",
+    "https://dgtlinfra.com/data-center-architecture/",
+    "https://www.geeksforgeeks.org/data-center-architectures-for-distributed-systems/",
+    "https://www.techtarget.com/searchdatacenter/tip/Projections-and-feasibility-of-data-centers-in-space",
+    "https://www.ibm.com/think/topics/data-centers",
+    "https://www.linkedin.com/pulse/data-centers-space-kaneshwaran-govindasamy-sx6nc"
+  ],
+  "timestamp": "2025-02-23T04:56:10.622Z"
+}

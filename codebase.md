@@ -51,3 +51,7 @@ By any chance the code get's the critical error in the middle of the research li
 
 ### Check for the whole implementation of above architecture
 Everytime you take reference to this file, check and verify if your code changes 100% implements the feature discussed in codebase.md file? and if it is absolutely necessary then only make the changes. But make sure we are 100% implementing the exact flow of the codebase and agent according to codebase.md file.
+
+### Key Consideration
+- Make sure every agent(LLM) call we are doing it must have detailed schema file and important filed must be listed as required on that schema. You will get response in string format, you need to parse that string to convert it to json format and then access the desired key from that parsed object.
+- Citatios are everything in the whole agentic workflow. Whatever information we extract, we never ever not include citations and source of that information wheteher it is passing from website analyzer agent to Information Crunching Agent or Information Crunching Agent to report writing agent or may be Information Crunching Agent agent to query generating master agent.

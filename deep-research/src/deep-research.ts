@@ -4,6 +4,10 @@ import { HarmBlockThreshold, HarmCategory, Schema, SchemaType } from '@google/ge
 // import { reportAgentPrompt } from './prompt';
 import { OutputManager } from './output-manager';
 import { generateObject } from './ai/providers';
+import { InformationCruncher } from './information-cruncher';
+import { encode } from 'gpt-tokenizer';  // Add this import
+import * as fs from 'fs/promises';
+import path from 'path';
 
 // Initialize output manager for coordinated console/progress output
 export const output = new OutputManager();
@@ -260,113 +264,370 @@ export async function writeFinalReport({
   prompt: string;
   learnings: TrackedLearning[];
   visitedUrls: string[];
-}) {
-  if (visitedUrls.length === 0) {
-    log("Sorry no url provided - 🥹🥹")
-    return
-  }
-  log("Writing Final Report - 🥅🥅🥅🥅")
-  const learningsString = learnings.map(learning =>
-    `<learning>
+}): Promise<{ report: string; sources: Array<{ id: number; url: string; title: string }> }> {
+  try {
+    // Add input validation
+    if (!learnings || learnings.length === 0) {
+      throw new Error('No research learnings provided for report generation');
+    }
+
+    if (!visitedUrls || visitedUrls.length === 0) {
+      throw new Error('No source URLs provided for report generation');
+    }
+
+    log("Writing Final Report - 🥅🥅🥅🥅")
+
+    // Create multiple crunchers if needed for large reports
+    let processedLearnings: TrackedLearning[] = [];
+    const MAX_REPORT_TOKENS = InformationCruncher.getMaxTokenLimit();
+    let currentTokenCount = 0;
+
+    // Group learnings by objectives to maintain coherence
+    const learningsByObjective = learnings.reduce((acc, learning) => {
+      const objective = learning.objective || 'general';
+      if (!acc[objective]) {
+        acc[objective] = [];
+      }
+      acc[objective].push(learning);
+      return acc;
+    }, {} as Record<string, TrackedLearning[]>);
+
+    // Process each objective group separately
+    for (const [objective, objectiveLearnings] of Object.entries(learningsByObjective)) {
+      let currentBatch: TrackedLearning[] = [];
+      let batchTokens = 0;
+
+      for (const learning of objectiveLearnings) {
+        const learningTokens = encode(learning.content + learning.sourceText).length;
+
+        if (batchTokens + learningTokens > MAX_REPORT_TOKENS / 2) { // Use half max tokens per batch
+          // Crunch current batch
+          const batchCruncher = new InformationCruncher(objective);
+          for (const item of currentBatch) {
+            const crunchedInfo = await batchCruncher.addContent(
+              item.content,
+              item.sourceUrl,
+              item.sourceText
+            );
+
+            if (crunchedInfo) {
+              processedLearnings.push({
+                content: crunchedInfo.content,
+                sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
+                sourceText: crunchedInfo.sources.map(s => s.quote).join(' | '),
+                objective: objective
+              });
+            }
+          }
+
+          // Reset batch
+          currentBatch = [];
+          batchTokens = 0;
+        }
+
+        currentBatch.push(learning);
+        batchTokens += learningTokens;
+      }
+
+      // Process remaining batch
+      if (currentBatch.length > 0) {
+        const finalBatchCruncher = new InformationCruncher(objective);
+        for (const item of currentBatch) {
+          const crunchedInfo = await finalBatchCruncher.addContent(
+            item.content,
+            item.sourceUrl,
+            item.sourceText
+          );
+
+          if (crunchedInfo) {
+            processedLearnings.push({
+              content: crunchedInfo.content,
+              sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
+              sourceText: crunchedInfo.sources.map(s => s.quote).join(' | '),
+              objective: objective
+            });
+          }
+        }
+      }
+    }
+
+    // Final crunching if still over token limit
+    if (encode(processedLearnings.map(l => l.content + l.sourceText).join(' ')).length > MAX_REPORT_TOKENS) {
+      const finalCruncher = new InformationCruncher("Final Report Integration");
+      const finalProcessedLearnings: TrackedLearning[] = [];
+
+      for (const learning of processedLearnings) {
+        const crunchedInfo = await finalCruncher.addContent(
+          learning.content,
+          learning.sourceUrl,
+          learning.sourceText
+        );
+
+        if (crunchedInfo) {
+          finalProcessedLearnings.push({
+            content: crunchedInfo.content,
+            sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
+            sourceText: crunchedInfo.sources.map(s => s.quote).join(' | ')
+          });
+        }
+      }
+
+      processedLearnings = finalProcessedLearnings;
+    }
+
+    // Convert to XML format for report generation
+    const learningsString = processedLearnings.map(learning =>
+      `<learning>
       <content>${learning.content}</content>
       <source_url>${learning.sourceUrl}</source_url>
       <source_text>${learning.sourceText}</source_text>
     </learning>`
-  ).join('\n');
+    ).join('\n');
 
-  try {
-
-    //@important: No schema for thinking model, it does not support structured json output.
-    const schema: Schema = {
+    // Define strict schema for report generation
+    const reportSchema: Schema = {
       type: SchemaType.OBJECT,
       properties: {
-        research_paper: {
+        report: {
           type: SchemaType.STRING,
-          description: "Full Research paper in Markdown format only with proper word, line and paragraph spacing. Do not ouput in any other format other than full rich markdown format. Make new lines and new paragraph and proper formating you know these research paper writing technique in markdown right?",
-          nullable: false,
+          description: "The complete technical report in markdown format with citations"
         },
+        sources: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              id: {
+                type: SchemaType.NUMBER,
+                description: "Sequential number for the source"
+              },
+              url: {
+                type: SchemaType.STRING,
+                description: "Source URL"
+              },
+              title: {
+                type: SchemaType.STRING,
+                description: "Title or description of the source"
+              }
+            },
+            required: ["id", "url", "title"]
+          }
+        }
       },
-      required: ["research_paper"],
+      required: ["report", "sources"]
     };
 
+    // Generate the actual report using the crunched learnings
     const { response } = await generateObject({
-      system: `You are an expert technical researcher. Today is ${new Date().toISOString()}. Follow these instructions when responding:
-      
-      - You may be asked to research and write subjects that is after your knowledge cutoff, assume the user is right when presented with news.
-      - The user is a highly experienced analyst, no need to simplify it, be as detailed as possible technically and make sure your response is not filled with filler words but actual highly technical content based on your understanding and user's requirement.
-      - Write report such that every question user has asked, you are precisely 100% answering these questions with great detail.
-      - Be highly organized.
-      - Suggest solutions that user didn't think about.
-      - Be proactive and anticipate my needs.
-      - Treat me as an expert in all subject matter.
-      - Mistakes erodes user trust, so be accurate and thorough.
-      - Provide detailed explanations, user is comfortable with lots of detail.
-      - Value good arguments over authorities, the source is irrelevant.
-      - Consider new technologies and contrarian ideas, not just the conventional wisdom.
-      - You may use high levels of speculation or prediction, just flag it for me.
-      - The website and content you may get may not be relevent to the user's query at all.
-      - Do not include any unrelated stuffs that is not in the learning, only consider sources and content that fulfills the user's query directly.`,
-      prompt: `Write a very very technically detailed research paper precisley in very detail that addresses this query: "${prompt}.
-      
-      Remember your research paper must be highly based on ground facts. Do not include any sentence that cannot be cited. And any important point you make, please don't hesitate to cite it with the proper website you extracted from. You don't have to worry about over citation, just cite valueable points and sentences you make. Don't have filler sentences and content which will automatically make this research paper highly factual based and easily verifiable.
+      system: `You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report in markdown format. Follow these strict rules:
+      - Write in clear markdown format
+      - Every statement must end with a citation in format [n](url) where n is the sequential number
+      - Citations must be numbered sequentially [1], [2], etc.
+      - Each citation must link to one specific source URL
+      - Ensure each source is used at least once
+      - Write in highly technical and detailed manner
+      - Include all facts, figures, and technical specifications
+      - Create a References section at the end with numbered list of all sources
+      - Each reference must have a title/description and URL`,
+      prompt: `Write a comprehensive technical report using these research findings:
 
-Here are all the research findings I got while searching and scraping the websites related to above user's query.:
-${learningsString}
+Research Context: ${prompt}
 
-IMPORTANT:
-- Return ONLY the markdown report text with proper spacing and line gap.
-- Ensure every fact is cited in this format. [small website heading](website url).
-- Don't forget! In the end there must be all the list of websites you considered to while making every point in this research paper.
-`,
-      // Later use pro model.
-      model: process.env.RESEARCH_WRITING_MODEL as string,
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-      ],
-      generationConfig: { responseSchema: schema },
-      //@important: No schema for thinking model, it does not support structured json output.
+Research Findings:
+${learnings.map((l, i) => `
+Source ${i + 1}: ${l.sourceUrl}
+Content: ${l.content}
+Evidence: ${l.sourceText}
+`).join('\n\n')}
+
+Format Requirements:
+1. Use proper markdown headers (#, ##)
+2. Every statement must end with a citation in format [n](url)
+3. Add a References section at the end
+4. Ensure each citation is a clickable link
+5. Be highly technical and detailed
+6. Use clear section organization`,
+      model: process.env.REPORT_WRITING_MODEL as string,
+      generationConfig: {
+        responseSchema: reportSchema
+      }
     });
 
-    // Return the text directly without JSON.parse
+    // DONOT REMOVE THIS COMMENT.
+    // THE RESULT WILL BE JSON BUT STRINGIFIED JSON.
+    // WE NEED TO PARSE THAT STRING AND THEN PASS THE EXACT KEY'S VALUE THAT WE NEED TO SHOW AS REPORT ON FRONTEND AS FULL MARKDOWN.
+    //IMPORTANT: DEFINE SCHEMA FOR THE EXACT FORMAT ABOVE.
+    const parsedResponse = JSON.parse(response.text());
+    return {
+      report: parsedResponse.report,
+      sources: parsedResponse.sources
+    };
 
-    const model_response: { research_paper: string } = JSON.parse(response.text());
-    log("Final Report Generated - 🥅🥅🥅🥅", model_response, "✅😀")
-    return model_response.research_paper
   } catch (error) {
-    log('Error generating report:', error);
-    throw new Error('Failed to generate research report');
+    log('Report Generation Error:', {
+      error: error.message,
+      stack: error.stack,
+      learningsCount: learnings?.length || 0,
+      urlsCount: visitedUrls?.length || 0
+    });
+
+    // Enhanced error output now includes an agentResults field (empty if not available)
+    const errorOutput = await writeErrorOutput(error, {
+      learnings: processedLearnings || learnings,
+      visitedUrls,
+      failedUrls: [],
+      crunchedInfo: {
+        processedLearnings,
+        tokensUsed: encode(learningsString).length,
+        objectives: Object.keys(learningsByObjective)
+      },
+      agentResults: [],  // ← Added empty agentResults array here
+      researchContext: {
+        prompt,
+        totalSources: visitedUrls.length,
+        timeStamp: new Date().toISOString()
+      }
+    });
+
+    // Write to error-output.md
+    await fs.writeFile(
+      path.join(process.cwd(), 'error-output.md'),
+      errorOutput,
+      'utf-8'
+    );
+
+    throw error;
   }
 }
 
-// Modified main research function
+// Add new type for tracking agent information
+interface AgentResult {
+  type: 'website-analyzer' | 'information-cruncher' | 'report-writer';
+  objective: string;
+  url?: string;
+  extractedContent?: string;
+  crunchedContent?: string;
+  success: boolean;
+  error?: string;
+}
+
+async function writeErrorOutput(error: Error, data: {
+  learnings: TrackedLearning[],
+  visitedUrls: string[],
+  failedUrls: string[],
+  crunchedInfo: any,
+  agentResults: AgentResult[],  // Add this field
+  researchContext?: {
+    prompt: string,
+    totalSources: number,
+    timeStamp: string
+  }
+}): Promise<string> {
+  const errorOutput = `
+# Research Error Report
+Time: ${new Date().toISOString()}
+Error: ${error.message}
+
+${data.researchContext ? `
+## Research Context
+- Original Query: ${data.researchContext.prompt}
+- Total Sources Analyzed: ${data.researchContext.totalSources}
+- Research Started: ${data.researchContext.timeStamp}
+` : ''}
+
+## Research Progress Summary
+- Total Successful Scrapes: ${data.visitedUrls.length}
+- Total Failed Scrapes: ${data.failedUrls.length}
+- Total Extracted Learnings: ${data.learnings.length}
+
+## Successfully Scraped Websites
+${data.visitedUrls.map(url => `- ${url}`).join('\n')}
+
+## Failed Scrapes (Critical Errors)
+${data.failedUrls.map(url => `- ${url}`).join('\n')}
+
+## Agent Results
+${data.agentResults.map(agent => `
+### ${agent.type} ${agent.success ? '✅' : '❌'}
+- Objective: ${agent.objective}
+${agent.url ? `- URL: ${agent.url}` : ''}
+${agent.extractedContent ? `- Extracted Content: ${agent.extractedContent}` : ''}
+${agent.crunchedContent ? `- Crunched Content: ${agent.crunchedContent}` : ''}
+${agent.error ? `- Error: ${agent.error}` : ''}
+`).join('\n')}
+
+## Extracted Information
+${data.learnings.map(learning => `
+### Source: ${learning.sourceUrl}
+${learning.content}
+
+Supporting Quote:
+> ${learning.sourceText}
+`).join('\n')}
+
+${data.crunchedInfo ? `
+## Information Crunching Results
+### Processed Learnings
+${JSON.stringify(data.crunchedInfo.processedLearnings, null, 2)}
+
+### Token Usage
+- Total Tokens: ${data.crunchedInfo.tokensUsed}
+- Token Limit: ${InformationCruncher.getMaxTokenLimit()}
+
+### Research Objectives
+${data.crunchedInfo.objectives.map((obj: string) => `- ${obj}`).join('\n')}
+
+### Crunching Summary
+- Total Crunching Operations: ${data.crunchedInfo.crunchingOperations || 0}
+- Average Compression Ratio: ${data.crunchedInfo.compressionRatio || 'N/A'}
+` : ''}
+
+## System State
+- Node Version: ${process.version}
+- Error Stack: ${error.stack}
+- Error Time: ${new Date().toISOString()}
+- Memory Usage: ${JSON.stringify(process.memoryUsage())}
+`;
+
+  // Save error output to file
+  const errorFilePath = path.join(process.cwd(), 'error-output.md');
+  try {
+    await fs.writeFile(errorFilePath, errorOutput, 'utf-8');
+    log(`Error output saved to ${errorFilePath}`);
+  } catch (writeError) {
+    log(`Failed to write error output: ${writeError.message}`);
+  }
+
+  return errorOutput;
+}
+
+// Modify deepResearch to track agent results
 export async function deepResearch({
   query_to_find_websites,
   breadth,
   depth,
   onProgress,
   signal,
+  parentTokenCount = 0 // Track tokens from parent calls
 }: {
   query_to_find_websites: string;
   breadth: number;
   depth: number;
   onProgress?: (progress: ResearchProgress) => void;
   signal?: AbortSignal;
+  parentTokenCount?: number;
 }): Promise<ResearchResult> {
+
+  const MAX_TOTAL_TOKENS = InformationCruncher.getMaxTokenLimit();
+  let totalTokenCount = parentTokenCount;
+  let results: TrackedLearning[] = [];
+  let visitedUrls: string[] = [];
+  let failedUrls: string[] = [];
+  let lastCrunchedInfo: any = null;
+
+  let agentResults: AgentResult[] = [];
+  let queries: QueryWithObjective[] = []; // <-- declare queries here
+  const cruncher = new InformationCruncher("Initial Context"); // Initialize cruncher here
 
   log('Starting research with:', { depth, breadth });
 
@@ -377,84 +638,214 @@ export async function deepResearch({
     }
 
     // Generate queries with objectives
-    const queries = await generateQueriesWithObjectives(
+    queries = await generateQueriesWithObjectives(
       query_to_find_websites,
       breadth
     );
 
-    const results: TrackedLearning[] = [];
-    const visitedUrls: string[] = [];
-
     // Process each query
     for (const query of queries) {
-      // Check for abort
-      if (signal?.aborted) {
-        throw new Error('Research aborted');
-      }
+      try {
+        // Check for abort
+        if (signal?.aborted) {
+          throw new Error('Research aborted');
+        }
 
-      // Search
-      if (signal?.aborted) throw new Error('Research aborted');
-      const searchResults = await searchSerpResults(query.query);
+        // Check total accumulated tokens including parent calls
+        if (totalTokenCount >= MAX_TOTAL_TOKENS) {
+          log('Reached maximum token limit. Stopping further research.');
+          break;
+        }
 
-      // Scrape
-      if (signal?.aborted) throw new Error('Research aborted');
-      const scrapedContents = await scrapeWebsites(
-        searchResults.map(r => r.url)
-      );
+        // Search
+        if (signal?.aborted) throw new Error('Research aborted');
+        const searchResults = await searchSerpResults(query.query);
 
-      // Analyze each website
-      if (signal?.aborted) throw new Error('Research aborted');
-      const analyses = await Promise.all(
-        scrapedContents.map(content =>
-          analyzeWebsiteContent(content, query.objective)
-        )
-      );
+        // Scrape
+        if (signal?.aborted) throw new Error('Research aborted');
+        const scrapedContents = await scrapeWebsites(
+          searchResults.map(r => r.url)
+        );
 
-      // Filter and collect relevant results
-      const relevantAnalyses = analyses.filter(
-        (a): a is WebsiteAnalysis => a !== null && a.meetsObjective
-      );
+        // Track failed scrapes as critical errors
+        const scrapeFails = searchResults.map(r => r.url)
+          .filter(url => !scrapedContents.find(c => c.url === url));
+        failedUrls.push(...scrapeFails);
 
-      results.push(...relevantAnalyses.map(a => ({
-        content: a.content,
-        sourceUrl: a.sourceUrl,
-        sourceText: a.sourceText
-      })));
+        for (const failedUrl of scrapeFails) {
+          agentResults.push({
+            type: 'website-analyzer',
+            objective: query.objective,
+            url: failedUrl,
+            success: false,
+            error: 'Failed to scrape website'
+          });
+        }
 
-      visitedUrls.push(...scrapedContents.map(c => c.url));
+        // Track successful website analysis
+        for (const content of scrapedContents) {
+          try {
+            const analysis = await analyzeWebsiteContent(content, query.objective);
 
-      // Handle depth if needed
-      if (depth > 1) {
-        const deeperResults = await deepResearch({
-          query_to_find_websites: `
-          Original Context: ${query_to_find_websites}
-          Current Findings: ${relevantAnalyses.map(a => a.content).join('\n')}
-          Next Research Goal: ${query.objective}
-        `,
-          breadth: Math.ceil(breadth / 2),
-          depth: depth - 1,
-          onProgress,
-          signal
+            agentResults.push({
+              type: 'website-analyzer',
+              objective: query.objective,
+              url: content.url,
+              extractedContent: analysis?.content,
+              success: !!analysis?.meetsObjective
+            });
+
+            // Track tokens for each analyzed website
+            if (analysis && analysis.meetsObjective) {
+              // Add to cruncher and check if we need to crunch
+              const crunchedInfo = await cruncher.addContent(
+                analysis.content,
+                analysis.sourceUrl,
+                analysis.sourceText
+              );
+
+              if (crunchedInfo) {
+                totalTokenCount += encode(crunchedInfo.content).length;
+                // Add crunched information to results
+                results.push({
+                  content: crunchedInfo.content,
+                  sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
+                  sourceText: crunchedInfo.sources.map(s => s.quote).join(' | ')
+                });
+              }
+            }
+          } catch (analysisError) {
+            agentResults.push({
+              type: 'website-analyzer',
+              objective: query.objective,
+              url: content.url,
+              success: false,
+              error: analysisError.message
+            });
+          }
+        }
+
+        // Track information crunching
+        // After processing website analysis, do final crunching
+        const finalCrunch = await cruncher.finalCrunch();
+        if (finalCrunch) {
+          agentResults.push({
+            type: 'information-cruncher',
+            objective: query.objective,
+            crunchedContent: finalCrunch.content,
+            success: true
+          });
+          results.push({
+            content: finalCrunch.content,
+            sourceUrl: finalCrunch.sources.map(s => s.url).join(', '),
+            sourceText: finalCrunch.sources.map(s => s.quote).join(' | ')
+          });
+          lastCrunchedInfo = finalCrunch;
+        }
+
+        visitedUrls.push(...scrapedContents.map(c => c.url));
+
+        // Handle depth with token awareness
+        if (depth > 1 && totalTokenCount < MAX_TOTAL_TOKENS) {
+          const contextString = [
+            `Original Context: ${query_to_find_websites}`,
+            `Current Findings: ${results.map(r => r.content).join('\n')}`,
+            `Next Research Goal: ${query.objective}`
+          ].join('\n');
+
+          const deeperResults = await deepResearch({
+            query_to_find_websites: contextString,
+            breadth: Math.ceil(breadth / 2),
+            depth: depth - 1,
+            onProgress,
+            signal,
+            parentTokenCount: totalTokenCount
+          });
+
+          results.push(...deeperResults.learnings);
+          visitedUrls.push(...deeperResults.visitedUrls);
+        }
+      } catch (queryError) {
+        // Enhanced error logging for query processing
+        log(`Error processing query "${query.query}":`, {
+          error: queryError.message || 'Unknown error',
+          stack: queryError.stack,
+          query: query
         });
 
-        results.push(...deeperResults.learnings);
-        visitedUrls.push(...deeperResults.visitedUrls);
+        // Track failed query in agent results
+        agentResults.push({
+          type: 'website-analyzer',
+          objective: query.objective,
+          success: false,
+          error: `Query processing failed: ${queryError.message || 'Unknown error'}`
+        });
+
+        // Continue with next query instead of failing completely
+        continue;
       }
+    }
+
+    // Add validation before returning results
+    if (!results.length || !visitedUrls.length) {
+      throw new Error('No research results gathered. All queries failed or returned no data.');
     }
 
     return {
       learnings: results,
       visitedUrls: [...new Set(visitedUrls)]
     };
+
   } catch (error) {
     if (signal?.aborted) {
       throw new Error('Research aborted');
     }
-    log('Research error:', error);
+
+    // Enhanced error handling
+    const errorDetails = await writeErrorOutput(error, {
+      learnings: results || [],
+      visitedUrls,
+      failedUrls,
+      crunchedInfo: {
+        ...lastCrunchedInfo,
+        crunchingOperations: agentResults.filter(a => a.type === 'information-cruncher').length,
+        compressionRatio: calculateCompressionRatio(results, lastCrunchedInfo),
+        processedLearnings: results,
+        tokensUsed: totalTokenCount,
+        objectives: queries?.map(q => q.objective) || []
+      },
+      agentResults,
+      researchContext: {
+        prompt: query_to_find_websites,
+        totalSources: visitedUrls.length,
+        timeStamp: new Date().toISOString()
+      }
+    });
+
+    // Log detailed error summary
+    log('Research Error Summary:', {
+      error: error.message,
+      stack: error.stack,
+      totalVisitedUrls: visitedUrls.length,
+      totalFailedUrls: failedUrls.length,
+      totalLearnings: results?.length || 0,
+      totalQueries: queries?.length || 0,
+      completedQueries: agentResults.filter(a => a.success).length
+    });
+
     throw error;
   }
 }
 
+// Helper function to calculate compression ratio
+function calculateCompressionRatio(originalResults: TrackedLearning[], crunchedInfo: any): number {
+  if (!originalResults?.length || !crunchedInfo?.content) return 0;
+
+  const originalTokens = encode(originalResults.map(r => r.content).join(' ')).length;
+  const crunchedTokens = encode(crunchedInfo.content).length;
+
+  return originalTokens > 0 ? (originalTokens - crunchedTokens) / originalTokens : 0;
+}
 
 // SearXNG interfaces
 interface SearxResponse {
@@ -474,12 +865,12 @@ interface FirecrawlResponse {
   success: boolean;
   data: {
     markdown: string;
-    metadata: {
-      title: string;
-      sourceURL: string;
-      error?: string;
-      statusCode: number
-    };
+  }
+  metadata: {
+    title: string;
+    sourceURL: string;
+    error?: string;
+    statusCode: number
   };
 }
 
@@ -499,7 +890,6 @@ export type ResearchProgress = {
   analyzedWebsites?: number; // Add this field
 };
 
-
 // Add new types for source tracking
 interface TrackedLearning {
   content: string;
@@ -516,7 +906,6 @@ export type ResearchResult = {
   learnings: TrackedLearning[];
   visitedUrls: string[];
 };
-
 
 // New interface for query objectives
 interface QueryWithObjective {
