@@ -8,6 +8,7 @@ import { InformationCruncher } from './information-cruncher';
 import { encode } from 'gpt-tokenizer';  // Add this import
 import * as fs from 'fs/promises';
 import path from 'path';
+import { TokenTracker } from './token-tracker';
 
 // Initialize output manager for coordinated console/progress output
 export const output = new OutputManager();
@@ -645,6 +646,7 @@ export async function deepResearch({
   let agentResults: AgentResult[] = [];
   let queries: QueryWithObjective[] = []; // <-- declare queries here
   const cruncher = new InformationCruncher("Initial Context"); // Initialize cruncher here
+  const tokenTracker = new TokenTracker();
 
   log('Starting research with:', { depth, breadth });
 
@@ -654,67 +656,79 @@ export async function deepResearch({
       throw new Error('Research aborted');
     }
 
+    // Initialize a cruncher per SERP query
+    const crunchers = new Map<string, InformationCruncher>();
+
     // Generate queries with objectives
     queries = await generateQueriesWithObjectives(
       query_to_find_websites,
       breadth
     );
 
-    // Process each query
     for (const query of queries) {
-      try {
-        // Check for abort
-        if (signal?.aborted) {
-          throw new Error('Research aborted');
-        }
+      // Create cruncher for this query's objective
+      const cruncher = new InformationCruncher(query.objective);
+      crunchers.set(query.query, cruncher);
 
-        // Check total accumulated tokens including parent calls
-        if (totalTokenCount >= MAX_TOTAL_TOKENS) {
-          log('Reached maximum token limit. Stopping further research.');
-          break;
-        }
+      // Check for abort
+      if (signal?.aborted) {
+        throw new Error('Research aborted');
+      }
 
-        // Search
-        if (signal?.aborted) throw new Error('Research aborted');
-        const searchResults = await searchSerpResults(query.query);
+      // Check total accumulated tokens including parent calls
+      if (totalTokenCount >= MAX_TOTAL_TOKENS) {
+        log('Reached maximum token limit. Stopping further research.');
+        break;
+      }
 
-        // Scrape
-        if (signal?.aborted) throw new Error('Research aborted');
-        const scrapedContents = await scrapeWebsites(
-          searchResults.map(r => r.url)
-        );
+      // Search
+      if (signal?.aborted) throw new Error('Research aborted');
+      const searchResults = await searchSerpResults(query.query);
 
-        // Track failed scrapes as critical errors
-        const scrapeFails = searchResults.map(r => r.url)
-          .filter(url => !scrapedContents.find(c => c.url === url));
-        failedUrls.push(...scrapeFails);
+      // Scrape
+      if (signal?.aborted) throw new Error('Research aborted');
+      const scrapedContents = await scrapeWebsites(
+        searchResults.map(r => r.url)
+      );
 
-        for (const failedUrl of scrapeFails) {
+      // Track failed scrapes as critical errors
+      const scrapeFails = searchResults.map(r => r.url)
+        .filter(url => !scrapedContents.find(c => c.url === url));
+      failedUrls.push(...scrapeFails);
+
+      for (const failedUrl of scrapeFails) {
+        agentResults.push({
+          type: 'website-analyzer',
+          objective: query.objective,
+          url: failedUrl,
+          success: false,
+          error: 'Failed to scrape website'
+        });
+      }
+
+      // Track successful website analysis
+      for (const content of scrapedContents) {
+        try {
+          const analysis = await analyzeWebsiteContent(content, query.objective);
+
           agentResults.push({
             type: 'website-analyzer',
             objective: query.objective,
-            url: failedUrl,
-            success: false,
-            error: 'Failed to scrape website'
+            url: content.url,
+            extractedContent: analysis?.content,
+            success: !!analysis?.meetsObjective
           });
-        }
 
-        // Track successful website analysis
-        for (const content of scrapedContents) {
-          try {
-            const analysis = await analyzeWebsiteContent(content, query.objective);
+          // Track tokens for each analyzed website
+          if (analysis && analysis.meetsObjective) {
+            // Add to query's cruncher and check if we need to crunch
+            const tokenStatus = tokenTracker.addTokens(
+              query.query,
+              analysis.content + analysis.sourceText
+            );
 
-            agentResults.push({
-              type: 'website-analyzer',
-              objective: query.objective,
-              url: content.url,
-              extractedContent: analysis?.content,
-              success: !!analysis?.meetsObjective
-            });
-
-            // Track tokens for each analyzed website
-            if (analysis && analysis.meetsObjective) {
-              // Add to cruncher and check if we need to crunch
+            // If this query needs crunching
+            if (tokenStatus.needsCrunching) {
               const crunchedInfo = await cruncher.addContent(
                 analysis.content,
                 analysis.sourceUrl,
@@ -722,84 +736,96 @@ export async function deepResearch({
               );
 
               if (crunchedInfo) {
-                totalTokenCount += encode(crunchedInfo.content).length;
-                // Add crunched information to results
                 results.push({
                   content: crunchedInfo.content,
                   sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
-                  sourceText: crunchedInfo.sources.map(s => s.quote).join(' | ')
+                  sourceText: crunchedInfo.sources.map(s => s.quote).join(' | '),
+                  objective: query.objective
                 });
+
+                // Reset query tokens after crunching
+                tokenTracker.resetQueryTokens(query.query);
               }
+            } else {
+              // Add directly if no crunching needed
+              results.push({
+                content: analysis.content,
+                sourceUrl: analysis.sourceUrl,
+                sourceText: analysis.sourceText,
+                objective: query.objective
+              });
             }
-          } catch (analysisError) {
-            agentResults.push({
-              type: 'website-analyzer',
-              objective: query.objective,
-              url: content.url,
-              success: false,
-              error: analysisError.message
-            });
+
+            // Check total token limit
+            if (tokenTracker.exceedsMaxTokens()) {
+              log('Reached maximum total token limit. Starting final crunching...');
+
+              // Final crunch for all accumulated content
+              for (const [queryId, queryCruncher] of crunchers) {
+                const finalCrunch = await queryCruncher.finalCrunch();
+                if (finalCrunch) {
+                  results.push({
+                    content: finalCrunch.content,
+                    sourceUrl: finalCrunch.sources.map(s => s.url).join(', '),
+                    sourceText: finalCrunch.sources.map(s => s.quote).join(' | '),
+                    objective: queries.find(q => q.query === queryId)?.objective || 'general'
+                  });
+                }
+              }
+              break;
+            }
           }
-        }
-
-        // Track information crunching
-        // After processing website analysis, do final crunching
-        const finalCrunch = await cruncher.finalCrunch();
-        if (finalCrunch) {
+        } catch (analysisError) {
           agentResults.push({
-            type: 'information-cruncher',
+            type: 'website-analyzer',
             objective: query.objective,
-            crunchedContent: finalCrunch.content,
-            success: true
+            url: content.url,
+            success: false,
+            error: analysisError.message
           });
-          results.push({
-            content: finalCrunch.content,
-            sourceUrl: finalCrunch.sources.map(s => s.url).join(', '),
-            sourceText: finalCrunch.sources.map(s => s.quote).join(' | ')
-          });
-          lastCrunchedInfo = finalCrunch;
         }
+      }
 
-        visitedUrls.push(...scrapedContents.map(c => c.url));
-
-        // Handle depth with token awareness
-        if (depth > 1 && totalTokenCount < MAX_TOTAL_TOKENS) {
-          const contextString = [
-            `Original Context: ${query_to_find_websites}`,
-            `Current Findings: ${results.map(r => r.content).join('\n')}`,
-            `Next Research Goal: ${query.objective}`
-          ].join('\n');
-
-          const deeperResults = await deepResearch({
-            query_to_find_websites: contextString,
-            breadth: Math.ceil(breadth / 2),
-            depth: depth - 1,
-            onProgress,
-            signal,
-            parentTokenCount: totalTokenCount
-          });
-
-          results.push(...deeperResults.learnings);
-          visitedUrls.push(...deeperResults.visitedUrls);
-        }
-      } catch (queryError) {
-        // Enhanced error logging for query processing
-        log(`Error processing query "${query.query}":`, {
-          error: queryError.message || 'Unknown error',
-          stack: queryError.stack,
-          query: query
-        });
-
-        // Track failed query in agent results
+      // Track information crunching
+      // After processing website analysis, do final crunching
+      const finalCrunch = await cruncher.finalCrunch();
+      if (finalCrunch) {
         agentResults.push({
-          type: 'website-analyzer',
+          type: 'information-cruncher',
           objective: query.objective,
-          success: false,
-          error: `Query processing failed: ${queryError.message || 'Unknown error'}`
+          crunchedContent: finalCrunch.content,
+          success: true
+        });
+        results.push({
+          content: finalCrunch.content,
+          sourceUrl: finalCrunch.sources.map(s => s.url).join(', '),
+          sourceText: finalCrunch.sources.map(s => s.quote).join(' | '),
+          objective: query.objective
+        });
+        lastCrunchedInfo = finalCrunch;
+      }
+
+      visitedUrls.push(...scrapedContents.map(c => c.url));
+
+      // Handle depth with token awareness
+      if (depth > 1 && totalTokenCount < MAX_TOTAL_TOKENS) {
+        const contextString = [
+          `Original Context: ${query_to_find_websites}`,
+          `Current Findings: ${results.map(r => r.content).join('\n')}`,
+          `Next Research Goal: ${query.objective}`
+        ].join('\n');
+
+        const deeperResults = await deepResearch({
+          query_to_find_websites: contextString,
+          breadth: Math.ceil(breadth / 2),
+          depth: depth - 1,
+          onProgress,
+          signal,
+          parentTokenCount: totalTokenCount
         });
 
-        // Continue with next query instead of failing completely
-        continue;
+        results.push(...deeperResults.learnings);
+        visitedUrls.push(...deeperResults.visitedUrls);
       }
     }
 

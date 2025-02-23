@@ -78,3 +78,10 @@ export async function deleteReport(id: string) {
     const db = await initDB();
     await db.delete(STORE_NAME, id);
 }
+
+export async function clearAllReports() {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    await tx.store.clear();
+    return tx.done;
+}

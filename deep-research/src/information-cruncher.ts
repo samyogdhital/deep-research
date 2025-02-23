@@ -1,112 +1,120 @@
+import { encode } from 'gpt-tokenizer';
 import { generateObject } from './ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
-import { encode } from 'gpt-tokenizer';
 
-export interface CrunchedInfo {
+interface Source {
+    url: string;
+    quote: string;
+}
+
+interface CrunchedInfo {
     content: string;
-    sources: Array<{
-        url: string;
-        quote: string;
-    }>;
+    sources: Source[];
 }
 
 export class InformationCruncher {
-    private static TOKEN_THRESHOLD = 50000;
-    private accumulator: {
-        content: string;
-        sources: Array<{ url: string; quote: string }>;
-    }[] = [];
+    private static readonly MAX_TOKENS = 50000;
+    private content: string[] = [];
+    private sources: Source[] = [];
+    private objective: string;
     private currentTokenCount = 0;
 
-    constructor(private objective: string, initialTokenCount: number = 0) {
-        this.currentTokenCount = initialTokenCount;
+    constructor(objective: string) {
+        this.objective = objective;
     }
 
-    async addContent(content: string, sourceUrl: string, sourceQuote: string) {
-        const newTokens = encode(content + sourceQuote).length;
-        this.currentTokenCount += newTokens;
+    static getMaxTokenLimit(): number {
+        return InformationCruncher.MAX_TOKENS;
+    }
 
-        this.accumulator.push({
-            content,
-            sources: [{ url: sourceUrl, quote: sourceQuote }]
-        });
+    async addContent(content: string, sourceUrl: string, sourceQuote: string): Promise<CrunchedInfo | null> {
+        const newTokens = encode(content).length;
 
-        if (this.currentTokenCount >= InformationCruncher.TOKEN_THRESHOLD) {
-            return await this.crunchInformation();
+        if (this.currentTokenCount + newTokens > InformationCruncher.MAX_TOKENS) {
+            // If adding new content would exceed token limit, crunch first
+            const crunchedInfo = await this.crunchContent();
+            // Reset after crunching
+            this.content = [content];
+            this.sources = [{ url: sourceUrl, quote: sourceQuote }];
+            this.currentTokenCount = newTokens;
+            return crunchedInfo;
         }
+
+        this.content.push(content);
+        this.sources.push({ url: sourceUrl, quote: sourceQuote });
+        this.currentTokenCount += newTokens;
         return null;
     }
 
-    private async crunchInformation(): Promise<CrunchedInfo> {
+    async crunchContent(): Promise<CrunchedInfo> {
+        if (this.content.length === 0) return null;
+
         const schema: Schema = {
             type: SchemaType.OBJECT,
             properties: {
                 crunchedContent: {
                     type: SchemaType.STRING,
-                    description: "Highly condensed, value-packed technical information that precisely meets the research objective"
+                    description: "Highly technical, detailed information that precisely answers the objective, compressed to maintain all key facts while reducing length"
                 },
-                relevantSources: {
+                preservedSources: {
                     type: SchemaType.ARRAY,
                     items: {
                         type: SchemaType.OBJECT,
                         properties: {
                             url: { type: SchemaType.STRING },
-                            quote: { type: SchemaType.STRING }
-                        }
+                            quote: { type: SchemaType.STRING },
+                            relevance: { type: SchemaType.NUMBER }
+                        },
+                        required: ["url", "quote", "relevance"]
                     }
                 }
             },
-            required: ["crunchedContent", "relevantSources"]
+            required: ["crunchedContent", "preservedSources"]
         };
 
-        const { response } = await generateObject({
-            system: `You are an Information Crunching Agent. Your task is to analyze a large collection of research findings and condense them into highly focused, technical, and value-packed information. Follow these rules:
-      - Focus only on information that directly addresses the research objective
-      - Eliminate redundant or low-value information
-      - Maintain technical accuracy and detail while being concise
-      - Preserve critical facts, figures, and technical details
-      - Track and maintain source attribution for verification`,
-            prompt: `Research Objective: ${this.objective}
+        try {
+            const { response } = await generateObject({
+                system: `You are an Information Crunching Agent. Your task is to compress large amounts of information while preserving all technical details, facts, and citations. Follow these rules:
+- Maintain all technical accuracy and detail
+- Preserve source attributions
+- Remove redundancy while keeping unique insights
+- Keep the most relevant sources and quotes
+- Ensure the compressed result precisely serves the objective`,
+                prompt: `Compress this information while maintaining all technical details and source attributions:
 
-Analyze and crunch these research findings into concentrated, high-value information:
+OBJECTIVE: ${this.objective}
 
-${this.accumulator.map(item => item.content).join('\n\n')}
+CONTENT TO CRUNCH:
+${this.content.map((c, i) => `
+Source ${i + 1}: ${this.sources[i].url}
+Content: ${c}
+Quote: ${this.sources[i].quote}
+`).join('\n')}`,
+                model: process.env.INFORMATION_CRUNCHING_MODEL as string,
+                generationConfig: {
+                    responseSchema: schema
+                }
+            });
 
-Sources for verification:
-${this.accumulator.map(item => item.sources.map(s =>
-                `URL: ${s.url}\nQuote: ${s.quote}`).join('\n')).join('\n\n')}`,
-            model: process.env.INFORMATION_CRUNCHING_MODEL as string,
-            generationConfig: { responseSchema: schema }
-        });
+            const result = JSON.parse(response.text());
 
-        const result = JSON.parse(response.text());
+            // Sort sources by relevance and keep the most relevant ones
+            const sortedSources = result.preservedSources
+                .sort((a: any, b: any) => b.relevance - a.relevance)
+                .map(({ url, quote }: { url: string, quote: string }) => ({ url, quote }));
 
-        // Reset accumulator and token count
-        this.accumulator = [];
-        this.currentTokenCount = 0;
-
-        return {
-            content: result.crunchedContent,
-            sources: result.relevantSources
-        };
+            return {
+                content: result.crunchedContent,
+                sources: sortedSources
+            };
+        } catch (error) {
+            console.error('Error crunching content:', error);
+            throw error;
+        }
     }
 
     async finalCrunch(): Promise<CrunchedInfo | null> {
-        if (this.accumulator.length > 0) {
-            return await this.crunchInformation();
-        }
-        return null;
-    }
-
-    // Add method to check total tokens of accumulated content
-    public getTotalTokens(): number {
-        return this.accumulator.reduce((total, item) => {
-            return total + encode(item.content + item.sources.map(s => s.quote).join(' ')).length;
-        }, 0);
-    }
-
-    // Add method to get max token limit
-    public static getMaxTokenLimit(): number {
-        return 200000; // Max tokens for report writing
+        if (this.content.length === 0) return null;
+        return this.crunchContent();
     }
 }

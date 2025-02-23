@@ -2,14 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ChevronDown,  Download, Check,  ArrowRight } from 'lucide-react';
-import { FaRegStopCircle} from "react-icons/fa";
+import { Download, Check, ArrowRight } from 'lucide-react';
 import { Spinner } from '../components/spinner';
 import { TbSend2 } from "react-icons/tb";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { Button } from "@/components/ui/button"
 import {
   Accordion,
@@ -229,9 +227,9 @@ export default function Home() {
 
   const handleInitialSubmit = async () => {
     try {
-      
-      setState(prev => ({ 
-        ...prev, 
+
+      setState(prev => ({
+        ...prev,
         step: 'processing',
       }));
 
@@ -244,12 +242,12 @@ export default function Home() {
         })
       });
 
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.details || 'Failed to generate questions');
       }
-      
+
       const data = await response.json();
       if (!data.questions || !Array.isArray(data.questions)) {
         throw new Error('Invalid response format');
@@ -272,7 +270,7 @@ export default function Home() {
     try {
       setState(prev => ({ ...prev, step: 'processing' }));
       setIsProcessing(true);
-      
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -283,16 +281,16 @@ export default function Home() {
           followUpAnswers: state.followUpAnswers
         })
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      
+
       // Add validation and logging
       console.log('Received report data:', data);
-      
+
       if (!data.report) {
         console.error('Missing report in response:', data);
         throw new Error('Report data is missing from response');
@@ -372,16 +370,13 @@ export default function Home() {
 
   return (
     <main className="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div>
 
       {state.step === 'input' && (
         <div className="flex-1 flex flex-col items-center justify-center -mt-24 space-y-12">
           <h2 className="text-4xl font-bold font-inter text-gray-800 dark:text-white tracking-tight">
             What do you want to know?
           </h2>
-          
+
           {/* Combined container with seamless connection */}
           <div className="w-full max-w-2xl">
             <div className="border-2 dark:border-gray-700 rounded-t-lg overflow-auto bg-white dark:bg-[#202121] border-b-0">
@@ -536,8 +531,8 @@ export default function Home() {
                   disabled={!state.initialPrompt}
                   onClick={handleInitialSubmit}
                   className={`rounded-full w-12 h-12 p-0 flex items-center justify-center transition-colors
-                    ${state.initialPrompt 
-                      ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white' 
+                    ${state.initialPrompt
+                      ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white'
                       : 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-400'}`}
                 >
                   <TbSend2 size={20} />
@@ -553,7 +548,7 @@ export default function Home() {
         <div className="mb-8">
           <Accordion type="single" className='w-full' collapsible>
             <AccordionItem value="item-1" className="border-2 dark:border-gray-700 rounded-lg">
-              <AccordionTrigger 
+              <AccordionTrigger
                 className="px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline"
               >
                 <div className="flex items-center gap-3 w-full overflow-hidden"> {/* Added overflow-hidden to the container */}
@@ -616,7 +611,7 @@ export default function Home() {
           </div>
         </div>
       )}
-{/* dark:bg-[#007e81] dark:hover:bg-[#00676a] */}
+      {/* dark:bg-[#007e81] dark:hover:bg-[#00676a] */}
       {/* Complete section */}
       {state.step === 'complete' && (
         <div className="space-y-6">
@@ -634,22 +629,22 @@ export default function Home() {
 
           {/* Report content with proper dark mode */}
           <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown 
+            <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw]}
               components={{
-                h1: ({node, ...props}) => <h1 className="text-4xl font-bold mb-6" {...props} />,
-                h2: ({node, ...props}) => <h2 className="text-3xl font-bold mt-8 mb-4" {...props} />,
-                h3: ({node, ...props}) => <h3 className="text-2xl font-bold mt-6 mb-3" {...props} />,
-                a: ({node, ...props}) => (
-                  <a 
+                h1: ({ node, ...props }) => <h1 className="text-4xl font-bold mb-6" {...props} />,
+                h2: ({ node, ...props }) => <h2 className="text-3xl font-bold mt-8 mb-4" {...props} />,
+                h3: ({ node, ...props }) => <h3 className="text-2xl font-bold mt-6 mb-3" {...props} />,
+                a: ({ node, ...props }) => (
+                  <a
                     className="text-blue-600 hover:text-blue-800 underline"
                     target="_blank"
                     rel="noopener noreferrer"
                     {...props}
                   />
                 ),
-                p: ({node, ...props}) => <p className="my-4" {...props} />,
+                p: ({ node, ...props }) => <p className="my-4" {...props} />,
               }}
             >
               {state.report}
@@ -689,10 +684,10 @@ export default function Home() {
                               <ol className="list-decimal ml-4 space-y-4">
                                 {query.successfulScrapes.map((scrape, sIdx) => (
                                   <li key={sIdx} className="text-gray-800 dark:text-gray-200">
-                                    <a href={scrape.url} 
-                                       target="_blank" 
-                                       rel="noopener noreferrer"
-                                       className="text-blue-600 dark:text-blue-400 hover:underline"
+                                    <a href={scrape.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 dark:text-blue-400 hover:underline"
                                     >
                                       {scrape.url}
                                     </a>
@@ -704,7 +699,7 @@ export default function Home() {
                               </ol>
                             </div>
                           )}
-                          
+
                           {/* Failed scrapes section */}
                           {query.failedScrapes.length > 0 && (
                             <div>
