@@ -26,6 +26,7 @@
     "gpt-tokenizer": "^2.8.1",
     "js-tiktoken": "^1.0.17",
     "lodash-es": "^4.17.21",
+    "lowdb": "^7.0.1",
     "p-limit": "^6.2.0",
     "socket.io": "^4.8.1",
     "zod": "^3.24.1"

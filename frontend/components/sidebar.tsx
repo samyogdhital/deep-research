@@ -24,6 +24,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { OngoingResearch } from './ongoing-research';
 
 interface ResearchReport {
     id: string;
@@ -66,20 +67,17 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
     useEffect(() => {
         const loadReports = async () => {
             try {
-                const data = await getAllReports();
-                if (!data?.length) return;
-
-                const validReports = data
-                    .filter(r => r.report_title)
-                    .sort((a, b) => b.timestamp - a.timestamp);
-
-                setReports(validReports);
-            } catch (err) {
-                console.error('Failed to load reports:', err);
+                // Only fetch if we're showing reports
+                if (isExpanded) {
+                    const data = await getAllReports();
+                    setReports(data);
+                }
+            } catch (error) {
+                console.error('Failed to load reports:', error);
             }
         };
         loadReports();
-    }, [pathname]);
+    }, [isExpanded]); // Only reload when sidebar expands
 
     const getThemeDisplay = (currentTheme: string | undefined) => {
         switch (currentTheme?.toLowerCase()) {
@@ -293,6 +291,9 @@ export function Sidebar({ isExpanded, onExpandChange }: SidebarProps) {
                     <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-6 px-2">
                         Research History
                     </h2>
+
+                    {/* Add OngoingResearch component */}
+                    <OngoingResearch />
 
                     {/* Categorized reports */}
                     <div className="space-y-6">

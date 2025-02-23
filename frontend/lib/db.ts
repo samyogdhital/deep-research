@@ -1,87 +1,73 @@
-import { openDB, DBSchema } from 'idb';
-
-interface ResearchSourcesLog {
-    // Define the structure of ResearchSourcesLog here
-}
-
-interface ResearchReport {
-    id: string;
-    report_title: string;
-    report: string;
-    sourcesLog: ResearchSourcesLog;
-    timestamp: number;
-}
-
-interface ResearchDBSchema extends DBSchema {
-    reports: {
-        key: string;
-        value: ResearchReport;
-    };
-}
-
-const DB_NAME = 'research_reports';
-const STORE_NAME = 'reports';
-
-export async function initDB() {
-    return openDB<ResearchDBSchema>(DB_NAME, 1, {
-        upgrade(db) {
-            db.createObjectStore(STORE_NAME);
-        },
-    });
-}
-
+// Remove IndexedDB related imports and interfaces
 export async function saveReport(report: {
     report_title: string;
     report: string;
-    sourcesLog: ResearchSourcesLog;
+    sourcesLog: any;
 }) {
-    const db = await initDB();
-    const id = crypto.randomUUID();
-
-    // Validate report_title exists
-    if (!report.report_title?.trim()) {
-        throw new Error('Report title is required');
+    if (!report.report_title?.trim() || !report.report?.trim()) {
+        console.error('Invalid report data:', report);
+        throw new Error('Invalid report data: Missing title or content');
     }
 
-    const reportData: ResearchReport = {
-        id,
-        report_title: report.report_title.trim(),
-        report: report.report,
-        sourcesLog: report.sourcesLog,
-        timestamp: Date.now()
-    };
+    try {
+        // Only save to backend
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/save`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(report)
+        });
 
-    await db.put(STORE_NAME, reportData, id);
-    return id;
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.details || 'Failed to save report');
+        }
+
+        const data = await response.json();
+        return data.id;
+    } catch (error) {
+        console.error('Save report error:', error);
+        throw new Error('Failed to save report');
+    }
 }
 
+// Simplify to only fetch from backend
 export async function getReport(id: string) {
-    const db = await initDB();
-    return db.get(STORE_NAME, id);
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}`);
+    if (!response.ok) return null;
+    return response.json();
 }
 
 export async function getAllReports() {
-    const db = await initDB();
-    return db.getAll(STORE_NAME);
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`);
+    if (!response.ok) return [];
+    return response.json();
 }
 
-export async function updateReportTitle(id: string, newTitle: string) {
-    const db = await initDB();
-    const report = await db.get(STORE_NAME, id);
-    if (!report) throw new Error('Report not found');
+export async function updateReportTitle(id: string, title: string) {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}/title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title })
+    });
 
-    report.report_title = newTitle;
-    await db.put(STORE_NAME, report, id);
+    if (!response.ok) throw new Error('Failed to update report title');
 }
 
 export async function deleteReport(id: string) {
-    const db = await initDB();
-    await db.delete(STORE_NAME, id);
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}`, {
+        method: 'DELETE'
+    });
+
+    if (!response.ok) throw new Error('Failed to delete report');
 }
 
 export async function clearAllReports() {
-    const db = await initDB();
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    await tx.store.clear();
-    return tx.done;
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
+        method: 'DELETE'
+    });
+
+    if (!response.ok) throw new Error('Failed to clear reports');
 }

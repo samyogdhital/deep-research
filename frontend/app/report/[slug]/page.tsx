@@ -1,84 +1,41 @@
-// 'use client';
+import { notFound } from 'next/navigation';
+import { ReportContent } from '@/components/report-content';
 
-// import { useEffect, useState } from 'react';
-// import { getReport, getAllReports } from '@/lib/db';
-// import { useParams } from 'next/navigation';
-// import ReactMarkdown from 'react-markdown';
-// import remarkGfm from 'remark-gfm';
-// import rehypeRaw from 'rehype-raw';
-// import { Button } from "@/components/ui/button";
-// import { Download } from 'lucide-react';
-// import {
-//   Accordion,
-//   AccordionContent,
-//   AccordionItem,
-//   AccordionTrigger,
-// } from "@/components/ui/accordion";
-import Report from '@/components/report';
+// Add caching options for Next.js fetch
+const getReport = async (id: string) => {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}`,
+    {
+      next: {
+        revalidate: 60,  // Cache for 60 seconds
+        tags: ['report'] // Add cache tag for manual invalidation
+      }
+    }
+  );
 
-export default function ReportPage() {
-  return <Report />
-  // const params = useParams();
-  // const [report, setReport] = useState<any>(null);
-  // const [error, setError] = useState<string | null>(null);
+  if (response.status === 404) {
+    notFound();
+  }
 
-  // useEffect(() => {
-  //   const loadReport = async () => {
-  //     try {
-  //       const data = await getReport(params.slug as string);
-  //       if (!data) {
-  //         setError('Report not found');
-  //         return;
-  //       }
-  //       await getAllReports(); // Refresh sidebar data
-  //       setReport(data);
-  //     } catch (err) {
-  //       setError('Failed to load report');
-  //     }
-  //   };
-  //   loadReport();
-  // }, [params.slug]);
+  if (!response.ok) {
+    throw new Error('Failed to fetch report');
+  }
 
-  // if (error) {
-  //   return (
-  //     <div className="container mx-auto px-4 py-8">
-  //       <h1 className="text-2xl font-bold text-red-500">{error}</h1>
-  //     </div>
-  //   );
-  // }
+  return response.json();
+};
 
-  // if (!report) return null; // Let loading.tsx handle loading state
+export default async function ReportPage({
+  params
+}: {
+  params: { slug: string }
+}) {
+  const report = await getReport(params.slug);
+  return <ReportContent report={report} />;
+}
 
-  // return (
-  //   <main className="container mx-auto px-4 py-8 max-w-4xl">
-  //     <div className="mb-8">
-  //       <h1 className="text-4xl font-bold mb-6">{report.reportTitle}</h1>
-  //       <div className="flex justify-end">
-  //         <Button
-  //           variant="outline"
-  //           onClick={() => {/* Add download handler */}}
-  //           className="flex items-center gap-2"
-  //         >
-  //           <Download size={16} />
-  //           Download Report
-  //         </Button>
-  //       </div>
-  //     </div>
-
-  //     {/* Report Content */}
-  //     <div className="prose dark:prose-invert max-w-none mb-8">
-  //       <ReactMarkdown
-  //         remarkPlugins={[remarkGfm]}
-  //         rehypePlugins={[rehypeRaw]}
-  //       >
-  //         {report.report}
-  //       </ReactMarkdown>
-  //     </div>
-
-  //     {/* Sources Section */}
-  //     <Accordion type="single" collapsible defaultValue="sources">
-  //       {/* ...sources accordion content... */}
-  //     </Accordion>
-  //   </main>
-  // );
+// Add error boundary page
+export function generateMetadata({ params }: { params: { slug: string } }) {
+  return {
+    title: `Research Report - ${params.slug}`,
+  };
 }

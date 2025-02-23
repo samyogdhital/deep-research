@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/accordion"
 import { useRouter } from 'next/navigation';
 import { saveReport, getAllReports } from '@/lib/db';  // Add import
+import { useResearchStore } from '@/lib/research-store';
 
 type ResearchState = {
   step: 'input' | 'follow-up' | 'processing' | 'complete';
@@ -268,54 +269,53 @@ export default function Home() {
 
   const handleResearchStart = async () => {
     try {
-      setState(prev => ({ ...prev, step: 'processing' }));
-      setIsProcessing(true);
+      const researchId = crypto.randomUUID();
+
+      // Add to ongoing research
+      useResearchStore.getState().addResearch({
+        id: researchId,
+        timestamp: Date.now(),
+        prompt: state.initialPrompt
+      });
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({
+          researchId, // Add research ID to track
           prompt: state.initialPrompt,
-          depth: state.depth,
-          breadth: state.breadth,
-          followUpAnswers: state.followUpAnswers
+          depth: state.depth || 1,
+          breadth: state.breadth || 1,
+          followUpAnswers: state.followUpAnswers || {}
         })
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.details || 'Research failed');
       }
 
       const data = await response.json();
 
-      // Add validation and logging
-      console.log('Received report data:', data);
-
-      if (!data.report) {
-        console.error('Missing report in response:', data);
-        throw new Error('Report data is missing from response');
+      // Data is already saved in backend, just navigate
+      if (!data.id) {
+        throw new Error('Invalid response: Missing report ID');
       }
 
-      if (!data.report_title) {
-        throw new Error('Report title is missing from response');
-      }
+      // Just navigate to the report page
+      router.push(`/report/${data.id}`);
 
-      // Save report with validated title
-      const reportId = await saveReport({
-        report_title: data.report_title, // Use title from API response
-        report: data.report,
-        sourcesLog: data.sourcesLog
-      });
-
-      // Force a refresh of the sidebar data before navigation
-      await getAllReports();
-
-      // Navigate to report page
-      router.push(`/report/${reportId}`);
+      // Update research with title once complete
+      useResearchStore.getState().updateResearch(researchId, data.report_title);
 
     } catch (error) {
-      console.error('Error during research:', error);
-      alert('Research failed. Please try again.');
+      // Remove from ongoing research on error
+      useResearchStore.getState().removeResearch(researchId);
+      console.error('Research error:', error);
+      alert(error instanceof Error ? error.message : 'Research failed');
       setState(prev => ({ ...prev, step: 'input' }));
     } finally {
       setIsProcessing(false);

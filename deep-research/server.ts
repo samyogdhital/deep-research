@@ -8,6 +8,7 @@ import { OutputManager } from './src/output-manager';
 import * as fs from 'fs/promises';
 import path from 'path';
 import { setBroadcastFn } from './src/deep-research';
+import { ReportDB } from './src/db';
 
 import { config } from 'dotenv';
 
@@ -52,12 +53,28 @@ const output = new OutputManager((message: string) => {
     broadcast(message);  // Pass broadcast function to OutputManager
 });
 
+// Add a Map to track all ongoing research globally
+const ongoingResearch = new Map<string, {
+    id: string;
+    prompt: string;
+    startTime: number;
+    status: 'collecting' | 'analyzing' | 'generating';
+}>();
+
 // Attach socket handlers
 let isResearchStopped = false;
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     broadcast('Connected to research server');
+
+    // Send current ongoing research immediately on connect
+    const currentResearch = Array.from(ongoingResearch.values());
+    socket.emit('ongoing-research-update', currentResearch);
+
+    socket.on('request-ongoing-research', () => {
+        socket.emit('ongoing-research-update', Array.from(ongoingResearch.values()));
+    });
 
     socket.on('stop-research', () => {
         if (currentResearch) {
@@ -116,6 +133,21 @@ app.post('/api/research/questions', async (req, res) => {
 
 app.post('/api/research/start', async (req, res) => {
     try {
+        // Add request body logging
+        console.log('Received research request:', {
+            body: req.body,
+            contentType: req.headers['content-type']
+        });
+
+        const { researchId, prompt } = req.body;
+
+        if (!req.body || typeof req.body.prompt === 'undefined') {
+            return res.status(400).json({
+                error: 'Prompt is required',
+                receivedBody: req.body
+            });
+        }
+
         if (currentResearch) {
             currentResearch.controller.abort();
             currentResearch.cleanup();
@@ -139,22 +171,37 @@ app.post('/api/research/start', async (req, res) => {
         broadcast('Starting research process...');
         // Emit research phase update
         io.emit('research-phase', 'collecting-sources');
-        const { prompt, depth, breadth, followUpAnswers } = req.body;
+        const { depth, breadth, followUpAnswers } = req.body;
 
-        // Validate input
-        if (!prompt) {
-            throw new Error('Prompt is required');
+        // Validate input with more detailed error
+        if (!prompt?.trim()) {
+            return res.status(400).json({
+                error: 'Prompt is required',
+                details: 'Prompt was empty or undefined',
+                received: { prompt, type: typeof prompt }
+            });
         }
 
-        // Combine prompt with follow-up answers
+        // Track new research
+        ongoingResearch.set(researchId, {
+            id: researchId,
+            prompt: prompt,
+            startTime: Date.now(),
+            status: 'collecting'
+        });
+
+        // Broadcast to all clients
+        io.emit('ongoing-research-update', Array.from(ongoingResearch.values()));
+
+        // Store original prompt and context separately
+        const originalPrompt = prompt; // Store original prompt
         const fullContext = `
 Initial Query: ${prompt}
 
 Follow-up Answers:
 ${Object.entries(followUpAnswers)
                 .map(([q, a]) => `Q: ${q}\nA: ${a}`)
-                .join('\n\n')}
-`;
+                .join('\n\n')}`;
 
         broadcast('Starting research process...');
 
@@ -190,45 +237,44 @@ ${Object.entries(followUpAnswers)
 
         // Generate final report
         const report = await writeFinalReport({
-            prompt: fullContext,
+            prompt: originalPrompt, // Ensure this is passed
             learnings: result.learnings,
             visitedUrls: result.visitedUrls
         });
 
-        if (!report) {
-            throw new Error('Failed to generate report');
+        if (!report || !report.report_title || !report.report) {
+            throw new Error('Failed to generate complete report');
         }
 
-        // Fix: Ensure we're writing string content to files
-        await Promise.all([
-            fs.writeFile(
-                path.join(process.cwd(), 'research.md'),
-                report.report, // Write the report content string
-                'utf-8'
-            ),
-            fs.writeFile(
-                path.join(process.cwd(), 'research-data.json'),
-                JSON.stringify({
-                    learnings: result.learnings,
-                    visitedUrls: result.visitedUrls,
-                    timestamp: new Date().toISOString()
-                }, null, 2),
-                'utf-8'
-            )
-        ]);
+        // When research is complete, save to LowDB with proper structure
+        const db = await ReportDB.getInstance();
+        const reportId = await db.saveReport({
+            report_title: report.report_title,
+            report: report.report,
+            sourcesLog: {
+                queries: currentResearch?.sourcesLog?.queries || [],
+                lastUpdated: new Date().toISOString()
+            }
+        });
+
+        // Properly format the response
+        const response = {
+            id: reportId,
+            report_title: report.report_title,
+            report: report.report,
+            sourcesLog: currentResearch?.sourcesLog || {
+                queries: [],
+                lastUpdated: new Date().toISOString()
+            }
+        };
+
+        // Clean up when done
+        ongoingResearch.delete(researchId);
+        io.emit('ongoing-research-update', Array.from(ongoingResearch.values()));
+        io.emit('research-completed', { id: researchId });
 
         broadcast('Deep Research complete.');
-
-        res.json({
-            report_title: report.report_title,
-            report: report.report.replace(/\\n/g, '\n'),
-            sources: result.learnings.map(l => ({
-                learning: l.content,
-                source: l.sourceUrl,
-                quote: l.sourceText
-            })),
-            sourcesLog: currentResearch.sourcesLog // Include final sources log in response
-        });
+        res.json(response);
 
     } catch (error) {
         // Reset phase on error
@@ -238,8 +284,24 @@ ${Object.entries(followUpAnswers)
             broadcast('Research process stopped');
             res.status(200).json({ status: 'stopped' });
         } else {
+            // Clean up on error
+            if (req.body.researchId) {
+                ongoingResearch.delete(req.body.researchId);
+                io.emit('ongoing-research-update', Array.from(ongoingResearch.values()));
+                io.emit('research-failed', { id: req.body.researchId });
+            }
             broadcast(`Error: ${error.message}`);
             console.error('Research error:', error);
+
+            // Add more detailed error logging
+            console.error('Research error details:', {
+                error: error.message,
+                stack: error.stack,
+                requestBody: {
+                    hasPrompt: !!req.body?.prompt,
+                    promptLength: req.body?.prompt?.length,
+                }
+            });
 
             // Ensure error output is available
             const errorFile = path.join(process.cwd(), 'error-output.md');
@@ -249,6 +311,116 @@ ${Object.entries(followUpAnswers)
                 errorOutput: `See ${errorFile} for full error details`
             });
         }
+    }
+});
+
+// Add new endpoint for saving research
+app.post('/api/research/save', async (req, res) => {
+    try {
+        const { report_title, report, sourcesLog } = req.body;
+
+        // Validate required fields
+        if (!report_title?.trim() || !report?.trim()) {
+            return res.status(400).json({
+                error: 'Invalid report data',
+                details: 'Missing title or content'
+            });
+        }
+
+        // Save to LowDB
+        const db = await ReportDB.getInstance();
+        const reportId = await db.saveReport({
+            report_title,
+            report,
+            sourcesLog: sourcesLog || {
+                queries: [],
+                lastUpdated: new Date().toISOString()
+            }
+        });
+
+        res.json({
+            id: reportId,
+            report_title,
+            success: true
+        });
+
+    } catch (error) {
+        console.error('Save report error:', error);
+        res.status(500).json({
+            error: 'Failed to save report',
+            details: error.message
+        });
+    }
+});
+
+// Add new report management endpoints
+app.get('/api/reports/:id', async (req, res) => {
+    try {
+        const db = await ReportDB.getInstance();
+        const report = await db.getReport(req.params.id);
+
+        if (!report) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        res.json(report);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch report' });
+    }
+});
+
+app.get('/api/reports', async (req, res) => {
+    try {
+        const db = await ReportDB.getInstance();
+        const reports = await db.getAllReports();
+        res.json(reports);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+});
+
+app.patch('/api/reports/:id/title', async (req, res) => {
+    try {
+        const { title } = req.body;
+        if (!title?.trim()) {
+            return res.status(400).json({ error: 'Title is required' });
+        }
+
+        const db = await ReportDB.getInstance();
+        const success = await db.updateReportTitle(req.params.id, title);
+
+        if (!success) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update report title' });
+    }
+});
+
+app.delete('/api/reports/:id', async (req, res) => {
+    try {
+        const db = await ReportDB.getInstance();
+        const success = await db.deleteReport(req.params.id);
+
+        if (!success) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete report' });
+    }
+});
+
+app.delete('/api/reports', async (req, res) => {
+    try {
+        const db = await ReportDB.getInstance();
+        await db.clearAllReports();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to clear reports' });
     }
 });
 
