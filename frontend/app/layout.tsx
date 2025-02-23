@@ -33,3 +33,8 @@ export default function RootLayout({
     </html>
   );
 }
+
+
+// TODO: we need to add expandable and collapasable sidebar here. This sidebar will fetch all the report id from indexdb. When clicked on each of these index, we get to the /report/[slug] page where we can see the full report of that specific research.
+
+// Since this is layout.tsx, this code will be shared through the whole app in nextjs. We don't have to incldue that sidebar logic on other child routes.
