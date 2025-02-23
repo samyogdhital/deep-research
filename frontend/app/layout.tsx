@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from '@/components/theme-provider';
+import { LayoutWrapper } from '@/components/layout-wrapper';
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,14 +28,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <LayoutWrapper>
+            {children}
+          </LayoutWrapper>
         </ThemeProvider>
       </body>
     </html>
   );
 }
-
-
-// TODO: we need to add expandable and collapasable sidebar here. This sidebar will fetch all the report id from indexdb. When clicked on each of these index, we get to the /report/[slug] page where we can see the full report of that specific research.
-
-// Since this is layout.tsx, this code will be shared through the whole app in nextjs. We don't have to incldue that sidebar logic on other child routes.

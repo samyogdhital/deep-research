@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ChevronDown,  Download, Check,  ArrowRight } from 'lucide-react';
 import { FaRegStopCircle} from "react-icons/fa";
-import { Spinner } from './spinner';
+import { Spinner } from '../components/spinner';
 import { TbSend2 } from "react-icons/tb";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -17,6 +17,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { useRouter } from 'next/navigation';
+import { saveReport, getAllReports } from '@/lib/db';  // Add import
 
 type ResearchState = {
   step: 'input' | 'follow-up' | 'processing' | 'complete';
@@ -60,6 +62,7 @@ type ResearchSourcesLog = {
 type ResearchPhase = 'idle' | 'collecting-sources' | 'analyzing' | 'generating-report';
 
 export default function Home() {
+  const router = useRouter();
   const [state, setState] = useState<ResearchState>({
     step: 'input',
     initialPrompt: '',
@@ -295,12 +298,23 @@ export default function Home() {
         throw new Error('Report data is missing from response');
       }
 
-      setState(prev => ({
-        ...prev,
-        step: 'complete',
+      if (!data.report_title) {
+        throw new Error('Report title is missing from response');
+      }
+
+      // Save report with validated title
+      const reportId = await saveReport({
+        report_title: data.report_title, // Use title from API response
         report: data.report,
-        sources: data.sources || []
-      }));
+        sourcesLog: data.sourcesLog
+      });
+
+      // Force a refresh of the sidebar data before navigation
+      await getAllReports();
+
+      // Navigate to report page
+      router.push(`/report/${reportId}`);
+
     } catch (error) {
       console.error('Error during research:', error);
       alert('Research failed. Please try again.');

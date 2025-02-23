@@ -264,7 +264,7 @@ export async function writeFinalReport({
   prompt: string;
   learnings: TrackedLearning[];
   visitedUrls: string[];
-}): Promise<{ report: string; sources: Array<{ id: number; url: string; title: string }> }> {
+}): Promise<{ report_title: string; report: string; sources: Array<{ id: number; url: string; title: string }> }> {
   try {
     // Add input validation
     if (!learnings || learnings.length === 0) {
@@ -385,9 +385,25 @@ export async function writeFinalReport({
     ).join('\n');
 
     // Define strict schema for report generation
+
+    // const fomrat = {
+    //   reportTitle: "The short 3-5 word short summary of the report to show on sidebar of frontend. So that it is easiler to identify what report is this.",
+    //   report: "The complete technical report in markdown format with citations",
+    //   sources: [
+    //     {
+    //       id: 1,
+    //       url: "Source URL",
+    //       title: "Short most important piece of information extracted from this website."
+    //     }
+    //   ]
+    // }
     const reportSchema: Schema = {
       type: SchemaType.OBJECT,
       properties: {
+        report_title: {
+          type: SchemaType.STRING,
+          description: "Short 3-5 word summary about what this report is all about."
+        },
         report: {
           type: SchemaType.STRING,
           description: "The complete technical report in markdown format with citations"
@@ -414,7 +430,7 @@ export async function writeFinalReport({
           }
         }
       },
-      required: ["report", "sources"]
+      required: ['report_title', "report", "sources"]
     };
 
     // Generate the actual report using the crunched learnings
@@ -459,6 +475,7 @@ Format Requirements:
     //IMPORTANT: DEFINE SCHEMA FOR THE EXACT FORMAT ABOVE.
     const parsedResponse = JSON.parse(response.text());
     return {
+      report_title: parsedResponse.report_title,
       report: parsedResponse.report,
       sources: parsedResponse.sources
     };

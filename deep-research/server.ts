@@ -220,6 +220,7 @@ ${Object.entries(followUpAnswers)
         broadcast('Deep Research complete.');
 
         res.json({
+            report_title: report.report_title,
             report: report.report.replace(/\\n/g, '\n'),
             sources: result.learnings.map(l => ({
                 learning: l.content,
