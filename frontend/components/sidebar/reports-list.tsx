@@ -20,6 +20,7 @@ interface Report {
     id: string;
     report_title: string;
     timestamp: number;
+    isVisited?: boolean;
 }
 
 interface CategoryReports {
@@ -38,24 +39,37 @@ export function ReportsList({ reports }: { reports: Report[] }) {
     })
     const [deletePrompt, setDeletePrompt] = useState<string | null>(null)
 
-    const categorizeReports = (reports: Report[]): CategoryReports => {
+    const categorizeReports = (reports: Report[]): CategoryReports & { unread: Report[] } => {
         const now = Date.now()
         const dayInMs = 86400000 // 24 hours
+        const weekInMs = dayInMs * 7
+        const monthInMs = dayInMs * 30
 
-        const categories = reports.reduce((acc: CategoryReports, report) => {
+        // First separate unread reports
+        const unreadReports = reports.filter(r => !r.isVisited)
+        const unreadIds = new Set(unreadReports.map(r => r.id))
+
+        // Then categorize remaining (read) reports
+        // Only process reports that aren't unread
+        const readReports = reports.filter(r => r.isVisited && !unreadIds.has(r.id))
+
+        const categories = readReports.reduce((acc: CategoryReports & { unread: Report[] }, report) => {
             const diff = now - report.timestamp
+
             if (diff < dayInMs) {
                 acc.today.push(report)
-            } else if (diff < dayInMs * 7) {
+            } else if (diff < weekInMs) {
                 acc.week.push(report)
-            } else if (diff < dayInMs * 30) {
+            } else if (diff < monthInMs) {
                 acc.month.push(report)
             }
+
             return acc
-        }, { today: [], week: [], month: [] })
+        }, { today: [], week: [], month: [], unread: unreadReports })
 
         // Sort each category by newest first
         return {
+            unread: categories.unread.sort((a, b) => b.timestamp - a.timestamp),
             today: categories.today.sort((a, b) => b.timestamp - a.timestamp),
             week: categories.week.sort((a, b) => b.timestamp - a.timestamp),
             month: categories.month.sort((a, b) => b.timestamp - a.timestamp)
@@ -127,90 +141,144 @@ export function ReportsList({ reports }: { reports: Report[] }) {
         }
     };
 
+    const renderReportItem = (report: Report) => (
+        <Link
+            key={report.id}
+            href={`/report/${report.id}`}
+            className={`group block px-2 py-1.5 rounded transition-colors relative
+                ${params.slug === report.id
+                    ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
+                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+            onClick={(e) => {
+                if (editing.id === report.id) {
+                    e.preventDefault()
+                }
+            }}
+        >
+            <div className="flex items-center min-h-[24px] relative">
+                {editing.id === report.id ? (
+                    <input
+                        type="text"
+                        value={editing.value}
+                        onChange={(e) => setEditing(prev => ({ ...prev, value: e.target.value }))}
+                        onKeyDown={(e) => handleKeyDown(e, report)}
+                        className="w-full bg-transparent border-none outline-none text-sm leading-6"
+                        autoFocus
+                    />
+                ) : (
+                    <div className="w-full relative">
+                        {/* Title with gradient fade */}
+                        <div className="w-full pr-7"> {/* Space for menu button */}
+                            <div className="truncate text-sm leading-6">
+                                {report.report_title || 'Untitled Research'}
+                            </div>
+                            {/* Gradient fade effect - matches parent background */}
+                            <div
+                                className="absolute right-0 top-0 h-full w-16 pointer-events-none"
+                                style={{
+                                    background: params.slug === report.id
+                                        ? 'linear-gradient(to left, #007e81 30%, transparent)'
+                                        : 'linear-gradient(to left, var(--tw-gradient-from) 30%, transparent)'
+                                }}
+                            />
+                        </div>
+
+                        {/* Menu button that stays visible during dropdown */}
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <button
+                                        onClick={(e) => e.preventDefault()}
+                                        className={`
+                                            opacity-0 group-hover:opacity-100
+                                            p-1 rounded transition-all duration-200
+                                            ${params.slug === report.id
+                                                ? 'hover:bg-[#006669] text-white'
+                                                : 'hover:bg-gray-300/50 dark:hover:bg-gray-600/50 text-gray-700 dark:text-gray-300'
+                                            }
+                                            ${editing.id === report.id ? 'hidden' : ''}
+                                        `}
+                                    >
+                                        <BsThreeDots className="w-3 h-3" />
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                    className="min-w-[8rem] p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
+                                    align="end"
+                                    side="right"
+                                    onClick={(e) => e.preventDefault()}
+                                >
+                                    <DropdownMenuItem
+                                        className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
+                                        onClick={() => handleRename(report)}
+                                    >
+                                        <FiEdit2 className="w-4 h-4" />
+                                        Rename
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
+                                        onClick={() => setDeletePrompt(report.id)}
+                                    >
+                                        <FiTrash2 className="w-4 h-4" />
+                                        Delete
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </Link>
+    )
+
     const categorizedReports = categorizeReports(reports)
 
     return (
         <div className="space-y-6">
-            {Object.entries(categorizedReports).map(([category, items]) =>
-                items.length > 0 && (
-                    <section key={category} className="space-y-1">
-                        <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">
-                            {category === 'today' ? 'Today' :
-                                category === 'week' ? 'Previous 7 Days' :
-                                    'Previous 30 Days'}
-                        </h3>
-                        <div className="space-y-1">
-                            {items.map(report => (
-                                <Link
-                                    key={report.id}
-                                    href={`/report/${report.id}`}
-                                    className={`block px-2 py-1.5 rounded transition-colors relative
-                                        ${params.slug === report.id
-                                            ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
-                                            : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
-                                        }`}
-                                    onClick={(e) => {
-                                        if (editing.id === report.id || e.target.closest('[data-dropdown]')) {
-                                            e.preventDefault()
-                                        }
-                                    }}
-                                >
-                                    <div className="flex items-center justify-between group min-h-[24px]">
-                                        {editing.id === report.id ? (
-                                            <input
-                                                type="text"
-                                                value={editing.value}
-                                                onChange={(e) => setEditing(prev => ({ ...prev, value: e.target.value }))}
-                                                onKeyDown={(e) => handleKeyDown(e, report)}
-                                                className="w-full bg-transparent border-none outline-none text-sm leading-6 py-0"
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            <>
-                                                <span className="truncate text-sm leading-6 py-0">
-                                                    {report.report_title || 'Untitled Research'}
-                                                </span>
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <button
-                                                            data-dropdown
-                                                            onClick={(e) => e.preventDefault()}
-                                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded transition-colors"
-                                                        >
-                                                            <BsThreeDots className="w-3 h-3" />
-                                                        </button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent
-                                                        className="min-w-[8rem] p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
-                                                        align="end"
-                                                        side="right"
-                                                        onClick={(e) => e.preventDefault()}
-                                                    >
-                                                        <DropdownMenuItem
-                                                            className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
-                                                            onClick={() => handleRename(report)}
-                                                        >
-                                                            <FiEdit2 className="w-4 h-4" />
-                                                            Rename
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem
-                                                            className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
-                                                            onClick={() => setDeletePrompt(report.id)}
-                                                        >
-                                                            <FiTrash2 className="w-4 h-4" />
-                                                            Delete
-                                                        </DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </>
-                                        )}
-                                    </div>
-                                </Link>
-                            ))}
-                        </div>
-                    </section>
-                )
+            {/* Unread Section */}
+            {categorizedReports.unread.length > 0 && (
+                <section className="space-y-1">
+                    <h3 className="text-xs font-medium px-2 mb-2 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#1d9bf0] dark:bg-[#1a8cd8]" />
+                        <span className="text-[#1d9bf0] dark:text-[#1a8cd8]">Unread</span>
+                    </h3>
+                    <div className="space-y-1">
+                        {categorizedReports.unread.map(report => renderReportItem(report))}
+                    </div>
+                </section>
             )}
+
+            {/* Today Section */}
+            {categorizedReports.today.length > 0 && (
+                <section className="space-y-1">
+                    <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">Today</h3>
+                    <div className="space-y-1">
+                        {categorizedReports.today.map(report => renderReportItem(report))}
+                    </div>
+                </section>
+            )}
+
+            {/* Previous 7 Days Section */}
+            {categorizedReports.week.length > 0 && (
+                <section className="space-y-1">
+                    <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">Previous 7 Days</h3>
+                    <div className="space-y-1">
+                        {categorizedReports.week.map(report => renderReportItem(report))}
+                    </div>
+                </section>
+            )}
+
+            {/* Previous 30 Days Section */}
+            {categorizedReports.month.length > 0 && (
+                <section className="space-y-1">
+                    <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2">Previous 30 Days</h3>
+                    <div className="space-y-1">
+                        {categorizedReports.month.map(report => renderReportItem(report))}
+                    </div>
+                </section>
+            )}
+
             <Dialog open={!!deletePrompt} onOpenChange={() => setDeletePrompt(null)}>
                 <DialogContent className="bg-gray-100 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700">
                     <DialogHeader>

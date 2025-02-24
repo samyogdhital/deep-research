@@ -1,17 +1,17 @@
 
 # Research Error Report
-Time: 2025-02-24T10:49:07.213Z
+Time: 2025-02-24T12:25:21.577Z
 Error: Search failed: Search failed with status 500: Internal Server Error
 
 
 ## Research Context
 - Original Query: 
-Initial Query: space sector.
+Initial Query: space based datacenter.
 
 Follow-up Answers:
 
 - Total Sources Analyzed: 0
-- Research Started: 2025-02-24T10:49:07.213Z
+- Research Started: 2025-02-24T12:25:21.577Z
 
 
 ## Research Progress Summary
@@ -41,7 +41,7 @@ Follow-up Answers:
 - Token Limit: 50000
 
 ### Research Objectives
-- Find websites providing comprehensive data and analysis of the space sector, including market trends, financial performance of companies, and industry reports.
+- Find websites discussing the concept and feasibility of space-based datacenters.
 
 ### Crunching Summary
 - Total Crunching Operations: 0
@@ -55,5 +55,5 @@ Follow-up Answers:
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
     at async deepResearch (C:\Users\dhita\Desktop\samyog\final_deep_agent\deep-research\src\deep-research.ts:698:29)
     at async <anonymous> (C:\Users\dhita\Desktop\samyog\final_deep_agent\deep-research\server.ts:209:24)
-- Error Time: 2025-02-24T10:49:07.213Z
-- Memory Usage: {"rss":66293760,"heapTotal":35774464,"heapUsed":32882656,"external":9414999,"arrayBuffers":1370209}
+- Error Time: 2025-02-24T12:25:21.586Z
+- Memory Usage: {"rss":67678208,"heapTotal":31948800,"heapUsed":29977624,"external":8219605,"arrayBuffers":234394}

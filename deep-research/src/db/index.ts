@@ -25,6 +25,7 @@ type Report = {
     report: string;
     sourcesLog: ResearchSourcesLog;
     timestamp: number;
+    isVisited: boolean; // Add this field
 }
 
 type DBData = {
@@ -64,14 +65,15 @@ class ReportDB {
         return ReportDB.instance;
     }
 
-    async saveReport(report: Omit<Report, 'id' | 'timestamp'>): Promise<string> {
+    async saveReport(report: Omit<Report, 'id' | 'timestamp' | 'isVisited'>): Promise<string> {
         await this.db.read();
 
         const id = crypto.randomUUID();
         const newReport = {
             ...report,
             id,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            isVisited: false // Set default value
         };
 
         this.db.data.reports.push(newReport);
@@ -128,6 +130,16 @@ class ReportDB {
         const isEmptyNow = this.db.data.reports.length === 0;
 
         return hadReports && isEmptyNow; // Return true only if reports were deleted and verified
+    }
+
+    async markReportAsVisited(id: string): Promise<boolean> {
+        await this.db.read();
+        const report = this.db.data.reports.find(r => r.id === id);
+        if (!report) return false;
+
+        report.isVisited = true;
+        await this.db.write();
+        return true;
     }
 }
 

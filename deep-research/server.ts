@@ -412,6 +412,21 @@ app.patch('/api/reports/:id/title', async (req, res) => {
     }
 });
 
+app.patch('/api/reports/:id/visit', async (req, res) => {
+    try {
+        const db = await ReportDB.getInstance();
+        const success = await db.markReportAsVisited(req.params.id);
+
+        if (!success) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to mark report as visited' });
+    }
+});
+
 app.delete('/api/reports/:id', async (req, res) => {
     try {
         const db = await ReportDB.getInstance();

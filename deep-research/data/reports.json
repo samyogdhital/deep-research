@@ -8,7 +8,8 @@
         "lastUpdated": "2025-02-24T10:15:50.502Z"
       },
       "id": "528f850d-7150-4b9f-899c-6ed89d852fb2",
-      "timestamp": 1740392150503
+      "timestamp": 1740392150503,
+      "isVisited": true
     },
     {
       "report_title": "Space-Based Data Centers Overview",
@@ -18,7 +19,8 @@
         "lastUpdated": "2025-02-24T10:38:17.587Z"
       },
       "id": "8c6ce82d-1d8e-462f-96bf-e648f6adec93",
-      "timestamp": 1740393497588
+      "timestamp": 1740393497588,
+      "isVisited": true
     },
     {
       "report_title": "Donald Trump: A Comprehensive Overview",
@@ -28,7 +30,8 @@
         "lastUpdated": "2025-02-24T10:43:46.199Z"
       },
       "id": "4bdb3eda-f841-49d6-95ec-fad0258d75bb",
-      "timestamp": 1740393826200
+      "timestamp": 1740393826200,
+      "isVisited": false
     },
     {
       "report_title": "Achieving Personal Excellence",
@@ -38,7 +41,8 @@
         "lastUpdated": "2025-02-24T10:46:07.270Z"
       },
       "id": "d8fe8e1d-6151-4597-9704-19d170ab9f8a",
-      "timestamp": 1740393967271
+      "timestamp": 1740393967271,
+      "isVisited": false
     }
   ]
 }
