@@ -16,6 +16,9 @@ import { Button } from "@/components/ui/button"
 import { updateReportTitle } from '@/lib/db'
 import { deleteReportAction } from '@/lib/server-actions/reports'
 
+
+const truncate = (str: string): string => str.length > 24 ? str.slice(0, 26) + '...' : str;
+
 interface Report {
     id: string;
     report_title: string;
@@ -168,61 +171,53 @@ export function ReportsList({ reports }: { reports: Report[] }) {
                     />
                 ) : (
                     <div className="w-full relative">
-                        {/* Title container with improved gradient handling */}
-                        <div className="w-full overflow-hidden whitespace-nowrap pr-8">
-                            <span className="text-sm leading-6">
-                                {report.report_title || 'Untitled Research'}
+                        {/* Text container that stays within Link width */}
+                        <div className="w-full relative">
+                            <span className="block text-sm leading-6 whitespace-nowrap overflow-hidden">
+                                {truncate(report.report_title) || 'Untitled Research'}
                             </span>
 
-                            {/* Gradient that follows current selection state */}
-                            {params.slug !== report.id && (
-                                <div className="absolute right-0 top-0 h-full w-12 pointer-events-none bg-gradient-to-l from-gray-100 group-hover:from-gray-200 dark:from-gray-800 dark:group-hover:from-gray-700 transition-colors" />
-                            )}
-                            {params.slug === report.id && (
-                                <div className="absolute right-0 top-0 h-full w-12 pointer-events-none bg-gradient-to-l from-[#007e81] transition-colors" />
-                            )}
-                        </div>
-
-                        {/* Menu button positioned above gradient */}
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 z-10">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button
+                            {/* Menu button - no permanent ellipsis */}
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <button
+                                            onClick={(e) => e.preventDefault()}
+                                            className={`
+                                                opacity-0 group-hover:opacity-100
+                                                p-1.5 rounded-sm transition-all duration-200
+                                                ${params.slug === report.id
+                                                    ? 'bg-[#006669] text-white'
+                                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                                }
+                                            `}
+                                        >
+                                            <BsThreeDots className="w-3 h-3" />
+                                        </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                        className="min-w-[8rem] p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
+                                        align="end"
+                                        side="right"
                                         onClick={(e) => e.preventDefault()}
-                                        className={`
-                                            opacity-0 group-hover:opacity-100
-                                            p-1 rounded transition-all duration-200
-                                            ${params.slug === report.id
-                                                ? 'hover:bg-[#006669] text-white'
-                                                : 'hover:bg-gray-300/50 dark:hover:bg-gray-600/50 text-gray-700 dark:text-gray-300'
-                                            }
-                                        `}
                                     >
-                                        <BsThreeDots className="w-3 h-3" />
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                    className="min-w-[8rem] p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
-                                    align="end"
-                                    side="right"
-                                    onClick={(e) => e.preventDefault()}
-                                >
-                                    <DropdownMenuItem
-                                        className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
-                                        onClick={() => handleRename(report)}
-                                    >
-                                        <FiEdit2 className="w-4 h-4" />
-                                        Rename
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
-                                        onClick={() => setDeletePrompt(report.id)}
-                                    >
-                                        <FiTrash2 className="w-4 h-4" />
-                                        Delete
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                                        <DropdownMenuItem
+                                            className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
+                                            onClick={() => handleRename(report)}
+                                        >
+                                            <FiEdit2 className="w-4 h-4" />
+                                            Rename
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            className="flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2"
+                                            onClick={() => setDeletePrompt(report.id)}
+                                        >
+                                            <FiTrash2 className="w-4 h-4" />
+                                            Delete
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
                         </div>
                     </div>
                 )}
