@@ -272,13 +272,7 @@ export default function Home() {
       setState(prev => ({ ...prev, step: 'processing' }));
       setIsProcessing(true);
 
-      // Clear follow-up questions when research starts
-      setState(prev => ({
-        ...prev,
-        generatedFollowUpQuestions: [],
-        followUpAnswers: {}
-      }));
-
+      // Generate research ID
       const researchId = crypto.randomUUID();
 
       // Add to ongoing research
@@ -292,14 +286,13 @@ export default function Home() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
         },
         body: JSON.stringify({
-          researchId, // Add research ID to track
+          researchId, // Include research ID
           prompt: state.initialPrompt,
           depth: state.depth || 1,
           breadth: state.breadth || 1,
-          followUpAnswers: state.followUpAnswers || {}
+          followUpAnswers: state.followUpAnswers
         })
       });
 
@@ -309,21 +302,10 @@ export default function Home() {
       }
 
       const data = await response.json();
-
-      // Data is already saved in backend, just navigate
-      if (!data.id) {
-        throw new Error('Invalid response: Missing report ID');
-      }
-
-      // Just navigate to the report page
       router.push(`/report/${data.id}`);
-
-      // Update research with title once complete
       useResearchStore.getState().updateResearch(researchId, data.report_title);
 
     } catch (error) {
-      // Remove from ongoing research on error
-      useResearchStore.getState().removeResearch(researchId);
       console.error('Research error:', error);
       alert(error instanceof Error ? error.message : 'Research failed');
       setState(prev => ({ ...prev, step: 'input' }));

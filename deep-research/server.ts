@@ -366,12 +366,19 @@ app.get('/api/reports/:id', async (req, res) => {
         const report = await db.getReport(req.params.id);
 
         if (!report) {
-            return res.status(404).json({ error: 'Report not found' });
+            return res.status(404).json({
+                error: 'Report not found',
+                details: `No report exists with ID: ${req.params.id}`
+            });
         }
 
         res.json(report);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch report' });
+        console.error('Get report error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch report',
+            details: error.message
+        });
     }
 });
 
@@ -411,22 +418,41 @@ app.delete('/api/reports/:id', async (req, res) => {
         const success = await db.deleteReport(req.params.id);
 
         if (!success) {
-            return res.status(404).json({ error: 'Report not found' });
+            return res.status(404).json({
+                error: 'Report deletion failed',
+                details: 'Report not found or deletion could not be verified'
+            });
         }
 
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to delete report' });
+        console.error('Delete report error:', error);
+        res.status(500).json({
+            error: 'Failed to delete report',
+            details: error.message
+        });
     }
 });
 
 app.delete('/api/reports', async (req, res) => {
     try {
         const db = await ReportDB.getInstance();
-        await db.clearAllReports();
+        const success = await db.clearAllReports();
+
+        if (!success) {
+            return res.status(500).json({
+                error: 'Clear all reports failed',
+                details: 'Reports could not be cleared or verification failed'
+            });
+        }
+
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to clear reports' });
+        console.error('Clear all reports error:', error);
+        res.status(500).json({
+            error: 'Failed to clear reports',
+            details: error.message
+        });
     }
 });
 

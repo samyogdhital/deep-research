@@ -92,11 +92,16 @@ async function searchSerpResults(query: string): Promise<SearxResult[]> {
   output.log(`Connected with Searxng at: ${process.env.SEARXNG_BASE_URL}`);
 
   try {
-    // Improved query formatting
-    const formattedQuery = encodeURIComponent(query)
+    // Add error checking for SEARXNG_BASE_URL
+    if (!process.env.SEARXNG_BASE_URL) {
+      throw new Error('SEARXNG_BASE_URL not configured');
+    }
+
+    // Improve query formatting
+    const formattedQuery = encodeURIComponent(query.trim());
 
     const response = await fetch(
-      `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0`,
+      `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0&engines=google,bing,duckduckgo`,
       {
         method: "GET",
         headers: {
@@ -106,24 +111,22 @@ async function searchSerpResults(query: string): Promise<SearxResult[]> {
     );
 
     if (!response.ok) {
-      throw new Error(`Search failed with status ${response.status}`);
+      throw new Error(`Search failed with status ${response.status}: ${await response.text()}`);
     }
 
     const data: SearxResponse = await response.json();
-    log(`Search found ${data.results?.length || 0} results for query: ${query}`);
 
     if (!data.results?.length) {
-      log('Warning: No search results found');
-      return [];
+      throw new Error(`No search results found for query: ${query}`);
     }
 
-    // Take more results for better coverage
-    // Get top 7 results cause search engines serve best within these website range from top.
+    log(`Search found ${data.results.length} results for query: ${query}`);
     return data.results.slice(0, 7);
-    // return data.results
+
   } catch (error) {
     log('Error during search:', error);
-    return [];
+    // Don't return empty array, throw error to trigger proper error handling
+    throw new Error(`Search failed: ${error.message}`);
   }
 }
 
@@ -635,6 +638,15 @@ export async function deepResearch({
   signal?: AbortSignal;
   parentTokenCount?: number;
 }): Promise<ResearchResult> {
+
+  // Add input validation
+  if (!query_to_find_websites?.trim()) {
+    throw new Error('Query is required');
+  }
+
+  if (breadth < 1 || depth < 1) {
+    throw new Error('Breadth and depth must be at least 1');
+  }
 
   const MAX_TOTAL_TOKENS = InformationCruncher.getMaxTokenLimit();
   let totalTokenCount = parentTokenCount;

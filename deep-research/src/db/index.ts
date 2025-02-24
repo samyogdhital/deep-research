@@ -100,19 +100,34 @@ class ReportDB {
     }
 
     async deleteReport(id: string): Promise<boolean> {
-        await this.db.read();
+        await this.db.read(); // Ensure fresh data
         const initialLength = this.db.data.reports.length;
+        const reportToDelete = this.db.data.reports.find(r => r.id === id);
+
+        if (!reportToDelete) return false;
+
         this.db.data.reports = this.db.data.reports.filter(r => r.id !== id);
+        await this.db.write(); // Wait for write to complete
 
-        if (this.db.data.reports.length === initialLength) return false;
+        // Verify deletion
+        await this.db.read(); // Read fresh data
+        const stillExists = this.db.data.reports.some(r => r.id === id);
 
-        await this.db.write();
-        return true;
+        return !stillExists; // Return true only if report is actually gone
     }
 
-    async clearAllReports(): Promise<void> {
+    async clearAllReports(): Promise<boolean> {
+        await this.db.read(); // Ensure fresh data
+        const hadReports = this.db.data.reports.length > 0;
+
         this.db.data.reports = [];
-        await this.db.write();
+        await this.db.write(); // Wait for write to complete
+
+        // Verify deletion
+        await this.db.read(); // Read fresh data
+        const isEmptyNow = this.db.data.reports.length === 0;
+
+        return hadReports && isEmptyNow; // Return true only if reports were deleted and verified
     }
 }
 
