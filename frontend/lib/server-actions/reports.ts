@@ -23,3 +23,9 @@ export async function clearAllReportsAction() {
         throw new Error('Failed to clear all reports')
     }
 }
+
+export async function refreshSidebarAction() {
+    'use server'
+    // Revalidate reports tag to refresh sidebar
+    revalidateTag('reports')
+}

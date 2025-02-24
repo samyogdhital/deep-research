@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getAllReports, updateReportTitle, deleteReport, clearAllReports } from '@/lib/db';
+import { updateReportTitle, deleteReport, clearAllReports } from '@/lib/db';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { RxHamburgerMenu } from "react-icons/rx";

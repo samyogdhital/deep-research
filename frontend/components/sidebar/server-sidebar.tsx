@@ -6,6 +6,7 @@ import { IoAddCircleOutline } from "react-icons/io5"
 import { SidebarFooter } from './sidebar-footer'
 import { ReportsList } from './reports-list'
 import { getAllReports } from '@/lib/db'
+import { OngoingResearchClient } from './ongoing-research-client'
 
 // Simple skeleton just for reports section
 function ReportsSkeleton() {
@@ -29,7 +30,7 @@ export async function ServerSidebar() {
     const isExpanded = cookieStore.get('sidebar-expanded')?.value === 'true'
 
     // Fetch reports server-side
-    const reports: ReportsType = await getAllReports()
+    const reports: ReportsType = await getAllReports() // Server-side call
 
     return (
         <div className={`fixed left-0 top-0 h-full bg-gray-100 dark:bg-gray-800 w-64 flex flex-col shadow-lg z-40 
@@ -51,6 +52,10 @@ export async function ServerSidebar() {
             {/* Reports Section */}
             <div className="flex-1 px-4 pt-6 border-t dark:border-gray-700">
                 <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-6 px-2">Reports</h2>
+
+                {/* Add OngoingResearchClient above ReportsList */}
+                <OngoingResearchClient />
+
                 <Suspense fallback={<ReportsSkeleton />}>
                     <ReportsList reports={reports} />
                 </Suspense>

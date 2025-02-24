@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react' // Add useEffect and useRef
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { BsThreeDots } from "react-icons/bs"
