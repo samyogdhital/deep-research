@@ -168,24 +168,23 @@ export function ReportsList({ reports }: { reports: Report[] }) {
                     />
                 ) : (
                     <div className="w-full relative">
-                        {/* Title with gradient fade */}
-                        <div className="w-full pr-7"> {/* Space for menu button */}
-                            <div className="truncate text-sm leading-6">
+                        {/* Title container with improved gradient handling */}
+                        <div className="w-full overflow-hidden whitespace-nowrap pr-8">
+                            <span className="text-sm leading-6">
                                 {report.report_title || 'Untitled Research'}
-                            </div>
-                            {/* Gradient fade effect - matches parent background */}
-                            <div
-                                className="absolute right-0 top-0 h-full w-16 pointer-events-none"
-                                style={{
-                                    background: params.slug === report.id
-                                        ? 'linear-gradient(to left, #007e81 30%, transparent)'
-                                        : 'linear-gradient(to left, var(--tw-gradient-from) 30%, transparent)'
-                                }}
-                            />
+                            </span>
+
+                            {/* Gradient that follows current selection state */}
+                            {params.slug !== report.id && (
+                                <div className="absolute right-0 top-0 h-full w-12 pointer-events-none bg-gradient-to-l from-gray-100 group-hover:from-gray-200 dark:from-gray-800 dark:group-hover:from-gray-700 transition-colors" />
+                            )}
+                            {params.slug === report.id && (
+                                <div className="absolute right-0 top-0 h-full w-12 pointer-events-none bg-gradient-to-l from-[#007e81] transition-colors" />
+                            )}
                         </div>
 
-                        {/* Menu button that stays visible during dropdown */}
-                        <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
+                        {/* Menu button positioned above gradient */}
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 z-10">
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <button
@@ -197,7 +196,6 @@ export function ReportsList({ reports }: { reports: Report[] }) {
                                                 ? 'hover:bg-[#006669] text-white'
                                                 : 'hover:bg-gray-300/50 dark:hover:bg-gray-600/50 text-gray-700 dark:text-gray-300'
                                             }
-                                            ${editing.id === report.id ? 'hidden' : ''}
                                         `}
                                     >
                                         <BsThreeDots className="w-3 h-3" />
@@ -282,7 +280,7 @@ export function ReportsList({ reports }: { reports: Report[] }) {
             <Dialog open={!!deletePrompt} onOpenChange={() => setDeletePrompt(null)}>
                 <DialogContent className="bg-gray-100 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700">
                     <DialogHeader>
-                        <DialogTitle className="text-gray-900 dark:text-gray-100">
+                        <DialogTitle className="text-gray-900 dark:text-gray-100 mb-5">
                             Delete Report
                         </DialogTitle>
                         <DialogDescription className="text-gray-600 dark:text-gray-400">

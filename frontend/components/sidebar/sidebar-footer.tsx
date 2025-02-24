@@ -113,7 +113,7 @@ export function SidebarFooter() {
             <Dialog open={showClearAllDialog} onOpenChange={() => setShowClearAllDialog(false)}>
                 <DialogContent className="bg-gray-100 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700">
                     <DialogHeader>
-                        <DialogTitle className="text-gray-900 dark:text-gray-100">
+                        <DialogTitle className="text-gray-900 dark:text-gray-100 mb-5">
                             Clear All Reports
                         </DialogTitle>
                         <DialogDescription className="text-gray-600 dark:text-gray-400">
