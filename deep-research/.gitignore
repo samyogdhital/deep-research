@@ -2,6 +2,7 @@
 
 # Output files
 research.md
+data/
 
 # Dependencies
 node_modules
