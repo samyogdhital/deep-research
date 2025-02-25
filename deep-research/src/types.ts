@@ -1,3 +1,5 @@
+import { TrackedLearning } from './agent/report-writer';
+
 export interface ScrapedSourceInfo {
     url: string;
     extractedContent?: string;
@@ -54,3 +56,31 @@ export interface ScrapedContent {
     url: string;
     markdown: string;
 }
+
+
+// Add new type for tracking agent information
+export interface AgentResult {
+    type: 'website-analyzer' | 'information-cruncher' | 'report-writer';
+    objective: string;
+    url?: string;
+    extractedContent?: string;
+    crunchedContent?: string;
+    success: boolean;
+    error?: string;
+}
+
+export type ResearchProgress = {
+    currentDepth: number;
+    totalDepth: number;
+    currentBreadth: number;
+    totalBreadth: number;
+    currentQuery?: string;
+    totalQueries: number;
+    completedQueries: number;
+    analyzedWebsites?: number; // Add this field
+};
+
+export type ResearchResult = {
+    learnings: TrackedLearning[];
+    visitedUrls: string[];
+};

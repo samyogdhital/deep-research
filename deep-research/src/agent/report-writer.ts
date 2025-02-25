@@ -9,8 +9,9 @@
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { OutputManager } from '../output-manager';
+import { InformationCruncher } from './information-cruncher';
 // import { encode } from 'gpt-tokenizer';
-import { InformationCruncher } from '../information-cruncher';
+// import { InformationCruncher } from '../information-cruncher';
 
 export interface TrackedLearning {
     content: string;
