@@ -2,7 +2,6 @@ import express from 'express';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 import cors from 'cors';
-import { generateFeedback } from './src/feedback';
 import { deepResearch, writeFinalReport } from './src/deep-research';
 import { OutputManager } from './src/output-manager';
 import * as fs from 'fs/promises';
@@ -11,6 +10,7 @@ import { setBroadcastFn } from './src/deep-research';
 import { ReportDB } from './src/db';
 
 import { config } from 'dotenv';
+import { generateFollowUps } from './src/agent/prompt-analyzer';
 
 config()
 const app = express();
@@ -104,13 +104,13 @@ app.use(express.json());
 
 app.post('/api/research/questions', async (req, res) => {
     try {
-        broadcast('Generating follow-up questions...');
+        broadcast('Analyzing prompt and generating follow-up questions...');
         const { prompt, followupQuestions } = req.body;
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
 
-        const questions = await generateFeedback({
+        const questions = await generateFollowUps({
             query: prompt,
             numQuestions: followupQuestions
         });
@@ -123,9 +123,9 @@ app.post('/api/research/questions', async (req, res) => {
         res.json({ questions });
     } catch (error) {
         broadcast(`Error: ${error.message}`);
-        console.error('Error generating questions:', error);
+        console.error('Error analyzing prompt:', error);
         res.status(500).json({
-            error: 'Failed to generate questions',
+            error: 'Failed to analyze prompt and generate questions',
             details: error instanceof Error ? error.message : 'Unknown error'
         });
     }
