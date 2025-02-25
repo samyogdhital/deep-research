@@ -128,7 +128,7 @@ export async function deepResearch({
       }
 
       // Initialize cruncher for this query
-      const cruncher = new InformationCruncher(query.objective, output);
+      const cruncher = new InformationCruncher(query.objective);
       crunchers.set(query.query, cruncher);
 
       // Search and scrape
