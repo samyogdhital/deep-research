@@ -1,9 +1,5 @@
 // import pLimit from 'p-limit';
-import { Schema, SchemaType } from '@google/generative-ai';
-
-// import { reportAgentPrompt } from './prompt';
 import { OutputManager } from './output-manager';
-import { generateObject } from './ai/providers';
 import { InformationCruncher } from './information-cruncher';
 import { encode } from 'gpt-tokenizer';  // Add this import
 import * as fs from 'fs/promises';
@@ -11,6 +7,7 @@ import path from 'path';
 import { TokenTracker } from './token-tracker';
 import { generateQueriesWithObjectives, QueryWithObjective } from './agent/query-generator';
 import { WebsiteAnalyzer, ScrapedContent } from './agent/website-analyzer';
+import { ReportWriter, TrackedLearning, ReportResult } from './agent/report-writer';
 
 // Initialize output manager for coordinated console/progress output
 export const output = new OutputManager();
@@ -134,255 +131,16 @@ export async function writeFinalReport({
   prompt: string;
   learnings: TrackedLearning[];
   visitedUrls: string[];
-}): Promise<{ report_title: string; report: string; sources: Array<{ id: number; url: string; title: string }> }> {
+}): Promise<ReportResult> {
   try {
-    // Add input validation
-    if (!learnings || learnings.length === 0) {
-      throw new Error('No research learnings provided for report generation');
-    }
-
-    if (!visitedUrls || visitedUrls.length === 0) {
-      throw new Error('No source URLs provided for report generation');
-    }
-
-    log("Writing Final Report - 🥅🥅🥅🥅")
-
-    // Create multiple crunchers if needed for large reports
-    let processedLearnings: TrackedLearning[] = [];
-    const MAX_REPORT_TOKENS = InformationCruncher.getMaxTokenLimit();
-    let currentTokenCount = 0;
-
-    // Group learnings by objectives to maintain coherence
-    const learningsByObjective = learnings.reduce((acc, learning) => {
-      const objective = learning.objective || 'general';
-      if (!acc[objective]) {
-        acc[objective] = [];
-      }
-      acc[objective].push(learning);
-      return acc;
-    }, {} as Record<string, TrackedLearning[]>);
-
-    // Process each objective group separately
-    for (const [objective, objectiveLearnings] of Object.entries(learningsByObjective)) {
-      let currentBatch: TrackedLearning[] = [];
-      let batchTokens = 0;
-
-      for (const learning of objectiveLearnings) {
-        const learningTokens = encode(learning.content + learning.sourceText).length;
-
-        if (batchTokens + learningTokens > MAX_REPORT_TOKENS / 2) { // Use half max tokens per batch
-          // Crunch current batch
-          const batchCruncher = new InformationCruncher(objective);
-          for (const item of currentBatch) {
-            const crunchedInfo = await batchCruncher.addContent(
-              item.content,
-              item.sourceUrl,
-              item.sourceText
-            );
-
-            if (crunchedInfo) {
-              processedLearnings.push({
-                content: crunchedInfo.content,
-                sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
-                sourceText: crunchedInfo.sources.map(s => s.quote).join(' | '),
-                objective: objective
-              });
-            }
-          }
-
-          // Reset batch
-          currentBatch = [];
-          batchTokens = 0;
-        }
-
-        currentBatch.push(learning);
-        batchTokens += learningTokens;
-      }
-
-      // Process remaining batch
-      if (currentBatch.length > 0) {
-        const finalBatchCruncher = new InformationCruncher(objective);
-        for (const item of currentBatch) {
-          const crunchedInfo = await finalBatchCruncher.addContent(
-            item.content,
-            item.sourceUrl,
-            item.sourceText
-          );
-
-          if (crunchedInfo) {
-            processedLearnings.push({
-              content: crunchedInfo.content,
-              sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
-              sourceText: crunchedInfo.sources.map(s => s.quote).join(' | '),
-              objective: objective
-            });
-          }
-        }
-      }
-    }
-
-    // Final crunching if still over token limit
-    if (encode(processedLearnings.map(l => l.content + l.sourceText).join(' ')).length > MAX_REPORT_TOKENS) {
-      const finalCruncher = new InformationCruncher("Final Report Integration");
-      const finalProcessedLearnings: TrackedLearning[] = [];
-
-      for (const learning of processedLearnings) {
-        const crunchedInfo = await finalCruncher.addContent(
-          learning.content,
-          learning.sourceUrl,
-          learning.sourceText
-        );
-
-        if (crunchedInfo) {
-          finalProcessedLearnings.push({
-            content: crunchedInfo.content,
-            sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
-            sourceText: crunchedInfo.sources.map(s => s.quote).join(' | ')
-          });
-        }
-      }
-
-      processedLearnings = finalProcessedLearnings;
-    }
-
-    // Convert to XML format for report generation
-    const learningsString = processedLearnings.map(learning =>
-      `<learning>
-      <content>${learning.content}</content>
-      <source_url>${learning.sourceUrl}</source_url>
-      <source_text>${learning.sourceText}</source_text>
-    </learning>`
-    ).join('\n');
-
-    // Define strict schema for report generation
-
-    // const fomrat = {
-    //   reportTitle: "The short 3-5 word short summary of the report to show on sidebar of frontend. So that it is easiler to identify what report is this.",
-    //   report: "The complete technical report in markdown format with citations",
-    //   sources: [
-    //     {
-    //       id: 1,
-    //       url: "Source URL",
-    //       title: "Short most important piece of information extracted from this website."
-    //     }
-    //   ]
-    // }
-    const reportSchema: Schema = {
-      type: SchemaType.OBJECT,
-      properties: {
-        report_title: {
-          type: SchemaType.STRING,
-          description: "Short 3-5 word summary about what this report is all about."
-        },
-        report: {
-          type: SchemaType.STRING,
-          description: "The complete technical report in markdown format with citations"
-        },
-        sources: {
-          type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              id: {
-                type: SchemaType.NUMBER,
-                description: "Sequential number for the source"
-              },
-              url: {
-                type: SchemaType.STRING,
-                description: "Source URL"
-              },
-              title: {
-                type: SchemaType.STRING,
-                description: "Title or description of the source"
-              }
-            },
-            required: ["id", "url", "title"]
-          }
-        }
-      },
-      required: ['report_title', "report", "sources"]
-    };
-
-    // Generate the actual report using the crunched learnings
-    const { response } = await generateObject({
-      system: `You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report in markdown format. Follow these strict rules:
-      - Write in clear markdown format
-      - Every statement must end with a citation in format [n](url) where n is the sequential number
-      - Citations must be numbered sequentially [1], [2], etc.
-      - Each citation must link to one specific source URL
-      - Ensure each source is used at least once
-      - Write in highly technical and detailed manner
-      - Include all facts, figures, and technical specifications
-      - Create a References section at the end with numbered list of all sources
-      - Each reference must have a title/description and URL`,
-      prompt: `Write a comprehensive technical report using these research findings:
-
-Research Context: ${prompt}
-
-Research Findings:
-${learnings.map((l, i) => `
-Source ${i + 1}: ${l.sourceUrl}
-Content: ${l.content}
-Evidence: ${l.sourceText}
-`).join('\n\n')}
-
-Format Requirements:
-1. Use proper markdown headers (#, ##)
-2. Every statement must end with a citation in format [n](url)
-3. Add a References section at the end
-4. Ensure each citation is a clickable link
-5. Be highly technical and detailed
-6. Use clear section organization`,
-      model: process.env.REPORT_WRITING_MODEL as string,
-      generationConfig: {
-        responseSchema: reportSchema
-      }
+    const reportWriter = new ReportWriter(output);
+    return await reportWriter.generateReport({
+      prompt,
+      learnings,
+      visitedUrls
     });
-
-    // DONOT REMOVE THIS COMMENT.
-    // THE RESULT WILL BE JSON BUT STRINGIFIED JSON.
-    // WE NEED TO PARSE THAT STRING AND THEN PASS THE EXACT KEY'S VALUE THAT WE NEED TO SHOW AS REPORT ON FRONTEND AS FULL MARKDOWN.
-    //IMPORTANT: DEFINE SCHEMA FOR THE EXACT FORMAT ABOVE.
-    const parsedResponse = JSON.parse(response.text());
-    return {
-      report_title: parsedResponse.report_title,
-      report: parsedResponse.report,
-      sources: parsedResponse.sources
-    };
-
   } catch (error) {
-    log('Report Generation Error:', {
-      error: error.message,
-      stack: error.stack,
-      learningsCount: learnings?.length || 0,
-      urlsCount: visitedUrls?.length || 0
-    });
-
-    // Enhanced error output now includes an agentResults field (empty if not available)
-    const errorOutput = await writeErrorOutput(error, {
-      learnings: processedLearnings || learnings,
-      visitedUrls,
-      failedUrls: [],
-      crunchedInfo: {
-        processedLearnings,
-        tokensUsed: encode(learningsString).length,
-        objectives: Object.keys(learningsByObjective)
-      },
-      agentResults: [],  // ← Added empty agentResults array here
-      researchContext: {
-        prompt,
-        totalSources: visitedUrls.length,
-        timeStamp: new Date().toISOString()
-      }
-    });
-
-    // Write to error-output.md
-    await fs.writeFile(
-      path.join(process.cwd(), 'error-output.md'),
-      errorOutput,
-      'utf-8'
-    );
-
+    log('Report Generation Error:', error);
     throw error;
   }
 }
@@ -806,13 +564,6 @@ export type ResearchProgress = {
   completedQueries: number;
   analyzedWebsites?: number; // Add this field
 };
-
-// Add new types for source tracking
-interface TrackedLearning {
-  content: string;
-  sourceUrl: string;
-  sourceText: string;  // Original text snippet that led to this learning
-}
 
 type ProcessedResult = {
   learnings: TrackedLearning[];
