@@ -1,0 +1,1 @@
+// All the logic for searxng including api fetching here.
