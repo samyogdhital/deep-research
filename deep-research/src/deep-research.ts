@@ -1,6 +1,6 @@
 // import pLimit from 'p-limit';
 import { OutputManager } from './output-manager';
-import { InformationCruncher } from './information-cruncher';
+import { InformationCruncher } from './agent/information-cruncher';
 import { encode } from 'gpt-tokenizer';  // Add this import
 import * as fs from 'fs/promises';
 import path from 'path';
@@ -281,7 +281,7 @@ export async function deepResearch({
 
   let agentResults: AgentResult[] = [];
   let queries: QueryWithObjective[] = []; // <-- declare queries here
-  const cruncher = new InformationCruncher("Initial Context"); // Initialize cruncher here
+  const cruncher = new InformationCruncher("Initial Context", output); // Initialize cruncher here
   const tokenTracker = new TokenTracker();
   const websiteAnalyzer = new WebsiteAnalyzer(output);
 
