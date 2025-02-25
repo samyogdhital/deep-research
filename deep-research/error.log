@@ -1,9 +1,0 @@
-Starting research process...
-Generating follow-up questions...
-Generated Report 
-Fatal error in research process: {
-  "code": "ERR_INVALID_ARG_TYPE"
-}
-Application failed: {
-  "code": "ERR_INVALID_ARG_TYPE"
-}
