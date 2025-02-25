@@ -57,16 +57,136 @@ Everytime you take reference to this file, check and verify if your code changes
 - Citatios are everything in the whole agentic workflow. Whatever information we extract, we never ever not include citations and source of that information wheteher it is passing from website analyzer agent to Information Crunching Agent or Information Crunching Agent to report writing agent or may be Information Crunching Agent agent to query generating master agent.
 
 
+# Detailed Deterministic Requirements for Deep Research Codebase
 
+This document outlines the precise requirements and process flows for the entire deep research codebase. It incorporates the original architecture along with the new detailed requirements regarding the handling of large-scale web scraping, data extraction, and parallel information crunching while maintaining citation integrity and schema consistency.
 
-### Verify this and make sure that we not removing or breaking this flow.
-Okay so everything that you need to do is already mentioned in the architecture if you take a look at both of these files right both of these md filesthen you'll find the implementation just go ahead and implement just go ahead and implement everything and make sure you don't break the existing workflow and that is the most important part heredon't break any existing workflowthink precisely what is neededand why are we doing the way we are doing things because we are using information crunching agent right and the task of it isas we scrape more websites right as the website analyzing agent get more websitessosee we are scraping hundreds of thousands of these websites then obviously the regardless of you if you if you give the raw data to the report writing agent then it doesn't make sense because the context will window will 1000 10 thousand times greater thanthe context window of model will be 10,000 times lesser than the content we script and that doesn't make sense it will not work at all and that's why for individually for every individual successfully scraped website we are deploying we aretriggering a website analyzing agent and this website analyzing is in kitsthe information the most important valuable information with a clear objective right that that precisely satisfies the objective given by they parent master agent right that that generated the serp query. Sowe so this website this website analyzing isn't they they extract the data with the cholera objective given by the master agent right so they get that and and then they accumulate that information for two things for furtherdeep research whether you are doing research more depth or more breadth so this information extracted fromwebsite analyzing is into will beused for further depth research one and another is it will be kept thereandyeah and and and and and this information will be used to write report right at the end of the day we we we we try we we collect the information that we get from individual website and write the report based on that right with the killer object that the user has givenso this is the thingbut the problem we arised is whenthe context window of a model that we are using the report writing is and the context window is it's not infinite right obviously it will be 200 3000 to 200K 300K words right and that's why we are using see we we are scraping thousands of these websites and web website if if we collect all the data of website analyzing agentright thenif it's somehow increased is greater thanthe 200K 300K word then the report will simply not be published right the report will simply not be publishedand so I'm not just talking about 200K 300K words i'm talking about literally one hundred thousand K words script from the Internet and how do you do that because the model end modelscontext window is just 200K 300K words right and so the way you do that is you you take another agent right you take anotherinformation crunching agent and what it does it crunches the information downit say every 50K words that we scrape write every 50K words that we get fromwebsite analyzing isn't what we do if we if theft isyeahfirst what we do is first what we do is we we checkif if we are able to reach the end of the research with just collecting all the words from website analyzing agentreaching to less than 300K words then we don't have to invoke any crunching agent OK but if say the research is going on on and on on and on and and we have already passed theywe have already passed they300K word thresholdif we pass the 300K word threshold then what we do then wethen we invoke website crunching agent and what this website crunching agent does is it crunches the information down with the objective that the parent model has given right it knows and the information crunch will happen under specific serp query. Uh every serp query We'll have its own Information crunching isn't and like let's sayyou have 10 serp querywhat you do is if the total data if we are real in real time we are tracking the number of words that we have accumulated fromthat we have accumulated from all the website scraping agent right and if the threshold is greater than three hundred K words then what we do we trigger Information crunching agent and what this information crunching isn't does is Yeah this information crunching isn'twill under like that first first if I have to make it a bit easy then if the threshold of words is already passed then we will invoke information crunching agent for the number of serp query that we did or we are doing so every sort query that we are doing or we didwe invoke information crunching agent and this information crunching isn'tyeah the information crunching isn't crunches the informationright and within its context it will takeit will take50K words within its context one single information crunching agent call will take50,000 words and then this will be split based on this order like every 50,000 words we will invoke anotherinformation crunching isn'tand the information crons that will happen will be based on the information will be based on the objective given by master agent under a specific serp querysothis will be accumulatedobviously the website that we scrape all the facts and figures this will not be removedunrelevant content will be filtered but the highly relevant content will obviously pass through the website analyzing agent as well as serve queeras well asinformation crunching agentsoand thenthis information branching will happen under every serve query that we do such thatour end report will haveour end bills so that the model they agent that writes the entry board will get 300K word okor underand up until that we will just crunch the information right we will just crunch the information recursively if we are scraping a lot of data and website analyzing agent are also being invoked and the content we are scraping is a lotbut whatever we do our objective will obviously be the objective generated by the master agent sorts that we are preciselywe are precisely giving answer to the user's question ok and if you see from this if you see from meta label then what we are doing here is we are scraping as many resources possible thus we are reaching to the truth of the question that the user is asking we are not we are not extracting a set of information and then just randomly giving some informationand sugar coating they on one dead information to make user satisfied we are not doing that we are ourself moving to the truth to the exact question that the user is asking to the exact source which may not be available on initialwebsite scraping or it may not be available on say just five website that is script right if you do hundreds of if you do ten thousand website scraping then only it might give higher probability that you will reach to the precise answer that the user is looking for and that is what we are doing here so this is what we need to implement in deep-research.ts file.
+---
 
-And also take a look at server .ts fileand that is also responsible for handling the api side.
+## 1. Core Architectural Flow
 
-But remember whenever we are doing an API call you need to make sure that we have a definite schema and for that use Google generative package that we are already implementing there and if you need to take some reference then take a look atright final report forms on that we have inside deep dash research.Ts filethe endand under that you fill wind this 
+- **Master Agent Responsibilities:**
+  - Analyze the user’s initial detailed query.
+  - Generate a set of SERP queries (number depends on user-specified breadth and recursive depth).
+  - Provide specific objectives for subsequent agents (Website Analyzing Agents, Information Crunching Agents) based on the query.
+  - Ensure all downstream agents strictly adhere to the generated objective.
 
-Generative config and inside that you need to keep the schema and so always give the schema ok and to define the schema as wellyou need to make sure the schema is type safe and yeah use the way we are currently defining this schema and make sure whenever you are doing LLM call make sure there is a definite schemaright and and and the response that you get from LLM needs to be parsed ok because you will get the Json but it will be stringified and you need to parse that to convert it into Json format so that is what you need to doand other thing isso the final report writing is that we are having in this code base don't change the format of that ok because that is already specified in the front end so don't change that whatever you need to change make sure that you absolutely need to make changes and then only change ok yeahand if if possible don't try to change the schema of llm call that we are doing currently yeahdon't try to change that but if you absolutely need to make sure you change that but but whatever you do like how many agent do you invoke make sure the what you need to verify is the information that you are extracting whether it is extracting by information crunching agent or website analyzing agent or the report rising it needs to precisely know that the information that I am processing the information that I am working with this is extracting extracted from this specific website so this information needs to be preservedwhatever whenever you are ok make sure you're doing thatyou need to preserve the source of the information from which website we are getting that because if we remove that then it doesn't make sense right from where did you to that information whether you hallucinated or it's information that you took from a source like no one can tell and this will decrease the credibility of your this will decrease the credibility of this agent so let's make sure that as well and so for that if you need to change some schema right where with the schema you getthe precise website and the content the exact content that was taken from that website right if if you are able to make sure this passes through every layer of llm call we are doing then that is awesome so let's do that ok let's implement this feature 100 percent I have given a full permission to do that,
+- **SERP Query Process:**
+  - For each SERP query, retrieve up to 7 top URLs.
+  - Initiate website scraping for each URL.
+
+- **Website Scraping and Analysis:**
+  - Each successfully scraped website triggers a Website Analyzing Agent.
+  - Each Website Analyzing Agent extracts the most valuable and relevant information that directly satisfies the specific objective provided by the Master Agent.
+  - Irrelevant or non-useful scraped data is discarded.
+  - The extracted information is stored along with precise source citation details.
+
+---
+
+## 2. Token/Word Tracking and Threshold Management
+
+- **Real-Time Content Tracking:**
+  - As soon as the first Website Analyzing Agent returns its output, initiate a real-time counter to track the cumulative word/token count per SERP query.
+  - Continuously update the counter with each subsequent successful extraction.
+
+- **Threshold-Based Triggering:**
+  - **Primary Threshold:** If the total content from Website Analyzing Agents remains below ~300K words (or tokens), the system can proceed without invoking further processing.
+  - **Exceeding Threshold:** Once the accumulated content exceeds ~300K words (or reaches a higher threshold such as 500K words in extreme cases), the system must invoke the Information Crunching Agent for that specific SERP query.
+
+---
+
+## 3. Information Crunching Agent (ICA)
+
+- **Invocation Conditions:**
+  - Trigger the ICA separately and in parallel for each SERP query when its associated content crosses the threshold.
+  - The ICA should be invoked per query; if multiple queries exist, multiple parallel instances of the ICA will run concurrently.
+
+- **Operational Details:**
+  - **Chunking:** The ICA processes content in chunks (approximately 50K words per call). If one call cannot compress all the data, additional ICA calls are invoked sequentially or in parallel until all content is processed.
+  - **Data Compression:** The ICA’s purpose is to condense the raw extracted data while ensuring:
+    - The retention of critical, highly relevant information.
+    - No loss or obfuscation of essential details such as factual figures, quotes, and direct citations.
+  - **Citation Integrity:** Each piece of condensed information must maintain a direct reference to its original source. This includes preserving the website URL and the specific quote or fact.
+
+- **Final Output for Report Writing:**
+  - The output from the ICA should be concise and must not exceed the final report’s context window (maximum ~300K words).
+  - The processed output is then passed to the Report Writing Agent.
+
+---
+
+## 4. Report Writing Agent
+
+- **Data Ingestion:**
+  - Receives aggregated and condensed data from:
+    - Website Analyzing Agents (if overall content remains under threshold).
+    - Information Crunching Agents (if content exceeds the acceptable limit).
+  - Ensures that the final payload for report writing is within the model’s context window.
+
+- **Report Generation:**
+  - The report is constructed using only the condensed, highly relevant data.
+  - Every section and sentence in the final report must include explicit citations from the original sources.
+  - The report format must remain consistent with the front-end specifications and pre-defined schema.
+
+---
+
+## 5. Handling High Breadth and Depth Scenarios
+
+- **Recursive Query Expansion:**
+  - For higher breadth, the Master Agent generates additional SERP queries exploring multiple angles of the original query.
+  - For deeper research (recursive depth > 1), follow-up queries are generated based on the learnings from previous rounds.
+  - The same token tracking, website analysis, and information crunching processes apply at each recursive level.
+
+- **Parallel Processing Across Queries:**
+  - Each SERP query is processed independently, with its own set of Website Analyzing Agents and, if necessary, its own parallel ICA instances.
+  - The cumulative information from each SERP query is maintained separately to ensure that the data does not exceed per-query thresholds.
+
+---
+
+## 6. API Calls and Schema Requirements
+
+- **Definite Schema for LLM Calls:**
+  - Every API call must include a well-defined, type-safe schema. Use the Google Generative package or the current schema definitions as a reference.
+  - LLM responses are expected as stringified JSON and must be parsed into JSON objects for further processing.
+  - Any modifications to the schema must be absolutely necessary and must not disrupt the existing workflow.
+
+- **Schema Integrity:**
+  - The schema must include fields for:
+    - Extracted content.
+    - Source citation details (website URL, quotes, factual data).
+    - Objective details provided by the Master Agent.
+  - Ensure that every layer (Website Analyzing, Information Crunching, Report Writing) retains the source and objective metadata.
+
+---
+
+## 7. Error Handling and Logging
+
+- **Critical Error Protocol:**
+  - If a critical error occurs (e.g., failure to scrape a website or failure in the report generation process), an `error-output.md` file must be generated.
+  - The error file should contain:
+    - Detailed logs of all successful and failed website scrapes.
+    - The extracted content and citations from each Website Analyzing Agent.
+    - The outputs from any invoked Information Crunching Agents.
+  - This ensures traceability and aids in debugging.
+
+---
+
+## 8. Implementation Guidelines
+
+- **Maintain Existing Workflow:**
+  - All new features must be integrated without breaking the existing workflow.
+  - The new requirements should seamlessly extend the deep research process while preserving the core architecture.
+
+- **Parallel and Asynchronous Processing:**
+  - Leverage asynchronous or multi-threaded processing to invoke Information Crunching Agents in parallel for each SERP query.
+  - Ensure that token tracking is efficient and real-time to avoid delays or data overflow.
+
+- **Data Preservation and Citation:**
+  - It is imperative that every extracted piece of information retains its source citation.
+  - The design must prevent any loss of source data during any transformation or aggregation process.
+
+---
+
+By adhering to these detailed deterministic requirements, the deep research codebase will efficiently handle large volumes of data while ensuring that the final report is concise, accurate, and fully traceable back to its sources.
 
 
 ### High Level Flow
