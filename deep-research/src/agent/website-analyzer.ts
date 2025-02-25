@@ -6,11 +6,7 @@
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { OutputManager } from '../output-manager';
-
-export interface ScrapedContent {
-  url: string;
-  markdown: string;
-}
+import { ScrapedContent } from '../firecrawl';
 
 export interface WebsiteAnalysis {
   content: string;
@@ -53,7 +49,7 @@ export class WebsiteAnalyzer {
   async analyzeContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
     this.output.log(`Analyzing website: ${content.url}`);
     this.log(`Started analyzing website: ${content.url}`, "🚀🚀");
-    
+
     try {
       const { response } = await generateObject({
         system: `You are the Website Analysis Agent. Your task is to review the scraped content of a given website in relation to a specific research objective and extract all relevant, factual, and verifiable information. Only include details that directly contribute to the research objective. Today is ${new Date().toISOString()}. Follow these instructions when responding:

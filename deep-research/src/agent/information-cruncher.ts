@@ -4,7 +4,6 @@
 
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
-import { OutputManager } from '../output-manager';
 import { encode } from 'gpt-tokenizer';
 
 export interface CrunchResult {
@@ -14,13 +13,11 @@ export interface CrunchResult {
 
 export class InformationCruncher {
     private static readonly MAX_TOKENS = 50000;
-    private output: OutputManager;
     private objective: string;
     private contents: Array<{ content: string; url: string; quote: string }> = [];
 
-    constructor(objective: string, output: OutputManager) {
+    constructor(objective: string) {
         this.objective = objective;
-        this.output = output;
     }
 
     static getMaxTokenLimit(): number {

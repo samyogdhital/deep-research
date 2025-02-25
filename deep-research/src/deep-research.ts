@@ -6,8 +6,10 @@ import * as fs from 'fs/promises';
 import path from 'path';
 import { TokenTracker } from './token-tracker';
 import { generateQueriesWithObjectives, QueryWithObjective } from './agent/query-generator';
-import { WebsiteAnalyzer, ScrapedContent } from './agent/website-analyzer';
+import { WebsiteAnalyzer } from './agent/website-analyzer';
 import { ReportWriter, TrackedLearning, ReportResult } from './agent/report-writer';
+import { SearxNG, SearxResult } from './searxng';
+import { Firecrawl } from './firecrawl';
 
 // Initialize output manager for coordinated console/progress output
 export const output = new OutputManager();
@@ -25,103 +27,6 @@ function log(...args: any[]) {
 
 // increase this if you have higher API rate limits
 const ConcurrencyLimit = 1;
-
-async function searchSerpResults(query: string): Promise<SearxResult[]> {
-  output.log(`Searching for: ${query}`);
-  output.log(`Connected with Searxng at: ${process.env.SEARXNG_BASE_URL}`);
-
-  try {
-    // Add error checking for SEARXNG_BASE_URL
-    if (!process.env.SEARXNG_BASE_URL) {
-      throw new Error('SEARXNG_BASE_URL not configured');
-    }
-
-    // Improve query formatting
-    const formattedQuery = encodeURIComponent(query.trim());
-
-    const response = await fetch(
-      `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0&engines=google,bing,duckduckgo`,
-      {
-        method: "GET",
-        headers: {
-          'Accept': 'application/json'
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Search failed with status ${response.status}: ${await response.text()}`);
-    }
-
-    const data: SearxResponse = await response.json();
-
-    if (!data.results?.length) {
-      throw new Error(`No search results found for query: ${query}`);
-    }
-
-    log(`Search found ${data.results.length} results for query: ${query}`);
-    return data.results.slice(0, 7);
-
-  } catch (error) {
-    log('Error during search:', error);
-    // Don't return empty array, throw error to trigger proper error handling
-    throw new Error(`Search failed: ${error.message}`);
-  }
-}
-
-async function scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
-  output.log(`Attempting to scrape ${urls.length} URLs`);
-  if (!urls.length) {
-    log('No URLs to scrape');
-    return [];
-  }
-
-  log(`Attempting to scrape ${urls.length} URLs`);
-
-  const results = await Promise.all(urls.map(async url => {
-    try {
-      // Fix: Use correct docker host internal URL
-      const response = await fetch(`${process.env.FIRECRAWL_BASE_URL}/v1/scrape`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.FIRECRAWL_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          url,
-          formats: ['markdown'],
-          onlyMainContent: true,
-          blockAds: true,
-          timeout: 30000 // 30 second timeout
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Scraping failed with status ${response.status}`);
-      }
-
-      const data: FirecrawlResponse = await response.json();
-
-      if (!data.success || !data.data?.markdown) {
-        throw new Error(data.data?.metadata?.error || 'No content received');
-      }
-
-      log(`✅ Successfully scraped ${url}`);
-      return {
-        url,
-        markdown: data.data.markdown
-      };
-    } catch (error) {
-      log(`❌ Failed to scrape ${url}:`, error);
-      return null;
-    }
-  }));
-
-  const validResults = results.filter((r): r is ScrapedContent => r !== null);
-  log(`Successfully scraped ${validResults.length} out of ${urls.length} URLs`);
-
-  return validResults;
-}
 
 export async function writeFinalReport({
   prompt,
@@ -284,6 +189,8 @@ export async function deepResearch({
   const cruncher = new InformationCruncher("Initial Context", output); // Initialize cruncher here
   const tokenTracker = new TokenTracker();
   const websiteAnalyzer = new WebsiteAnalyzer(output);
+  const searxng = new SearxNG(output);
+  const firecrawl = new Firecrawl(output);
 
   log('Starting research with:', { depth, breadth });
 
@@ -320,11 +227,11 @@ export async function deepResearch({
 
       // Search
       if (signal?.aborted) throw new Error('Research aborted');
-      const searchResults = await searchSerpResults(query.query);
+      const searchResults = await searxng.search(query.query);
 
       // Scrape
       if (signal?.aborted) throw new Error('Research aborted');
-      const scrapedContents = await scrapeWebsites(
+      const scrapedContents = await firecrawl.scrapeWebsites(
         searchResults.map(r => r.url)
       );
 
@@ -533,12 +440,6 @@ interface SearxResponse {
   // other fields not needed
 }
 
-interface SearxResult {
-  title: string;
-  url: string;
-  content: string;
-  // other fields not needed
-}
 
 // Firecrawl interfaces
 interface FirecrawlResponse {
