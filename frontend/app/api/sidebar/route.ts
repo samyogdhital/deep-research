@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 const SIDEBAR_STATE = 'sidebar-state'
 
 export async function GET() {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const expanded = cookieStore.get(SIDEBAR_STATE)?.value === 'true'
 
     // Fetch reports from backend API

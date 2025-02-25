@@ -4,19 +4,19 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Download, Check, ArrowRight } from 'lucide-react';
 import { Spinner } from '../components/spinner';
-import { TbSend2 } from "react-icons/tb";
+import { TbSend2 } from 'react-icons/tb';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Button } from "@/components/ui/button"
+import { Button } from '@/components/ui/button';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@/components/ui/accordion"
+} from '@/components/ui/accordion';
 import { useRouter } from 'next/navigation';
-import { saveReport, getAllReports } from '@/lib/db';  // Add import
+import { saveReport, getAllReports } from '@/lib/db'; // Add import
 import { useResearchStore } from '@/lib/research-store';
 
 type ResearchState = {
@@ -58,7 +58,11 @@ type ResearchSourcesLog = {
 };
 
 // Add new types
-type ResearchPhase = 'idle' | 'collecting-sources' | 'analyzing' | 'generating-report';
+type ResearchPhase =
+  | 'idle'
+  | 'collecting-sources'
+  | 'analyzing'
+  | 'generating-report';
 
 export default function Home() {
   const router = useRouter();
@@ -74,10 +78,11 @@ export default function Home() {
     showLogs: false,
     report: '',
     sources: [],
-    sourcesLog: { // Add default value for sourcesLog
+    sourcesLog: {
+      // Add default value for sourcesLog
       queries: [],
-      lastUpdated: new Date().toISOString()
-    }
+      lastUpdated: new Date().toISOString(),
+    },
   });
 
   const [status, setStatus] = useState<{
@@ -87,7 +92,7 @@ export default function Home() {
   }>({
     loading: false,
     message: '',
-    complete: false
+    complete: false,
   });
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -102,74 +107,114 @@ export default function Home() {
   // Add new state for research phase
   const [researchPhase, setResearchPhase] = useState<ResearchPhase>('idle');
 
+  const [currentResearchId, setCurrentResearchId] = useState<string | null>(
+    null
+  );
+
   const stopResearch = useCallback(() => {
     if (socket) {
       socket.emit('stop-research');
       setIsProcessing(false);
-      setState(prev => ({ ...prev, step: 'input' }));
+      setState((prev) => ({ ...prev, step: 'input' }));
     }
   }, [socket]);
 
   useEffect(() => {
     const newSocket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
       withCredentials: true,
-      transports: ['websocket']
+      transports: ['websocket'],
     });
 
     setSocket(newSocket);
 
+    // Add all socket event listeners here
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        logs: [...prev.logs,]
+        logs: [...prev.logs],
       }));
     });
 
+    // Modified research-completed handler to be simpler
+    newSocket.on('research-completed', async ({ id, researchId }) => {
+      useResearchStore.getState().removeResearch(researchId);
+
+      if (researchId === currentResearchId) {
+        setCurrentResearchId(null);
+        router.push(`/report/${id}`);
+      }
+    });
+
     newSocket.on('log', (message: string) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        logs: [...prev.logs, message]
+        logs: [...prev.logs, message],
       }));
       setLatestLog(message);
 
       if (message.includes('Generating follow-up questions')) {
-        setStatus({ loading: true, message: 'Generating follow-up questions...', complete: false });
+        setStatus({
+          loading: true,
+          message: 'Generating follow-up questions...',
+          complete: false,
+        });
       } else if (message.includes('Questions generated')) {
-        setStatus({ loading: false, message: 'Questions generated successfully', complete: true });
+        setStatus({
+          loading: false,
+          message: 'Questions generated successfully',
+          complete: true,
+        });
       } else if (message.includes('Starting research')) {
-        setStatus({ loading: true, message: 'Processing research...', complete: false });
+        setStatus({
+          loading: true,
+          message: 'Processing research...',
+          complete: false,
+        });
       } else if (message.includes('Generating final report')) {
-        setStatus({ loading: true, message: 'Generating final report...', complete: false });
-      } else if (message.includes('Deep Research complete.')) { // Add this condition
-        setStatus({ loading: false, message: 'Research completed successfully', complete: true });
+        setStatus({
+          loading: true,
+          message: 'Generating final report...',
+          complete: false,
+        });
+      } else if (message.includes('Deep Research complete.')) {
+        // Add this condition
+        setStatus({
+          loading: false,
+          message: 'Research completed successfully',
+          complete: true,
+        });
       } else if (message.includes('Research terminated by user')) {
-        setStatus({ loading: false, message: 'Research stopped', complete: false });
+        setStatus({
+          loading: false,
+          message: 'Research stopped',
+          complete: false,
+        });
         setIsProcessing(false);
-        setState(prev => ({ ...prev, step: 'input' }));
+        setState((prev) => ({ ...prev, step: 'input' }));
       }
     });
 
     newSocket.on('progress', (data: any) => {
       console.log('Received progress:', data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        logs: [...prev.logs, `Progress update: ${JSON.stringify(data)}`]
+        logs: [...prev.logs, `Progress update: ${JSON.stringify(data)}`],
       }));
     });
 
     newSocket.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        logs: [...prev.logs, `Connection error: ${error.message}`]
+        logs: [...prev.logs, `Connection error: ${error.message}`],
       }));
     });
 
     newSocket.on('sources-update', (sourcesLog: ResearchSourcesLog) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        sourcesLog
+        sourcesLog,
       }));
     });
 
@@ -183,9 +228,12 @@ export default function Home() {
 
     return () => {
       console.log('Cleaning up socket connection');
+      newSocket.off('research-completed');
       newSocket.close();
     };
-  }, []);
+  }, [router, currentResearchId]); // Add router and currentResearchId to dependencies
+
+  // Remove the separate useEffect for research-completed
 
   // Add click outside handler
   useEffect(() => {
@@ -194,11 +242,17 @@ export default function Home() {
       if (!target.closest('.depth-input') && !target.closest('.depth-button')) {
         setShowDepthInput(false);
       }
-      if (!target.closest('.breadth-input') && !target.closest('.breadth-button')) {
+      if (
+        !target.closest('.breadth-input') &&
+        !target.closest('.breadth-button')
+      ) {
         setShowBreadthInput(false);
       }
 
-      if (!target.closest('.followups-input') && !target.closest('.followups-button')) {
+      if (
+        !target.closest('.followups-input') &&
+        !target.closest('.followups-button')
+      ) {
         setShowFollowUpsInput(false);
       }
     };
@@ -211,38 +265,39 @@ export default function Home() {
   const handleDepthClick = () => {
     setShowBreadthInput(false);
     setShowDepthInput(true);
-    setShowFollowUpsInput(false)
+    setShowFollowUpsInput(false);
   };
 
   const handleBreadthClick = () => {
     setShowBreadthInput(true);
     setShowDepthInput(false);
-    setShowFollowUpsInput(false)
+    setShowFollowUpsInput(false);
   };
 
   const handleFollowUpsClick = () => {
     setShowBreadthInput(false);
     setShowDepthInput(false);
-    setShowFollowUpsInput(true)
+    setShowFollowUpsInput(true);
   };
 
   const handleInitialSubmit = async () => {
     try {
-
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         step: 'processing',
       }));
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: state.initialPrompt,
-          followupQuestions: state.followupQuestions
-        })
-      });
-
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: state.initialPrompt,
+            followupQuestions: state.followupQuestions,
+          }),
+        }
+      );
 
       if (!response.ok) {
         const error = await response.json();
@@ -254,47 +309,49 @@ export default function Home() {
         throw new Error('Invalid response format');
       }
 
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         step: 'follow-up',
-        generatedFollowUpQuestions: data.questions
+        generatedFollowUpQuestions: data.questions,
       }));
     } catch (error) {
       console.error('Error:', error);
-      alert(error instanceof Error ? error.message : 'Failed to generate questions');
-      setState(prev => ({ ...prev, step: 'input' }));
+      alert(
+        error instanceof Error ? error.message : 'Failed to generate questions'
+      );
+      setState((prev) => ({ ...prev, step: 'input' }));
     } finally {
     }
   };
 
   const handleResearchStart = async () => {
     try {
-      setState(prev => ({ ...prev, step: 'processing' }));
-      setIsProcessing(true);
-
-      // Generate research ID
       const researchId = crypto.randomUUID();
 
-      // Add to ongoing research
+      // Just add to ongoing research without any checks
       useResearchStore.getState().addResearch({
         id: researchId,
         prompt: state.initialPrompt,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        status: 'collecting', // Add initial status
       });
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          researchId, // Include research ID
-          prompt: state.initialPrompt,
-          depth: state.depth || 1,
-          breadth: state.breadth || 1,
-          followUpAnswers: state.followUpAnswers
-        })
-      });
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            researchId,
+            prompt: state.initialPrompt,
+            depth: state.depth || 1,
+            breadth: state.breadth || 1,
+            followUpAnswers: state.followUpAnswers,
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -302,13 +359,13 @@ export default function Home() {
       }
 
       const data = await response.json();
-      router.push(`/report/${data.id}`);
       useResearchStore.getState().updateResearch(researchId, data.report_title);
-
+      router.push(`/report/${data.id}`);
     } catch (error) {
+      setCurrentResearchId(null); // Clear on error
       console.error('Research error:', error);
       alert(error instanceof Error ? error.message : 'Research failed');
-      setState(prev => ({ ...prev, step: 'input' }));
+      setState((prev) => ({ ...prev, step: 'input' }));
     } finally {
       setIsProcessing(false);
     }
@@ -361,70 +418,72 @@ export default function Home() {
   }, [state.step]);
 
   return (
-    <main className="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col">
-
+    <main className='container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col'>
       {state.step === 'input' && (
-        <div className="flex-1 flex flex-col items-center justify-center -mt-24 space-y-12">
-          <h2 className="text-4xl font-bold font-inter text-gray-800 dark:text-white tracking-tight">
+        <div className='flex-1 flex flex-col items-center justify-center -mt-24 space-y-12'>
+          <h2 className='text-4xl font-bold font-inter text-gray-800 dark:text-white tracking-tight'>
             What do you want to know?
           </h2>
 
           {/* Combined container with seamless connection */}
-          <div className="w-full max-w-2xl">
-            <div className="border-2 dark:border-gray-700 rounded-t-lg overflow-auto bg-white dark:bg-[#202121] border-b-0">
+          <div className='w-full max-w-2xl'>
+            <div className='border-2 dark:border-gray-700 rounded-t-lg overflow-auto bg-white dark:bg-[#202121] border-b-0'>
               <textarea
                 ref={textareaRef}
-                className="w-full text-base font-medium resize-none border-none focus:outline-none focus:ring-0
+                className='w-full text-base font-medium resize-none border-none focus:outline-none focus:ring-0
                   text-gray-900 dark:text-white 
-                  placeholder:text-gray-400 dark:placeholder:text-gray-500 p-[24px] pt-[10px] pb-0 mt-4 h-[150px] dark:bg-[#202121]"
-                placeholder="Enter your research query..."
+                  placeholder:text-gray-400 dark:placeholder:text-gray-500 p-[24px] pt-[10px] pb-0 mt-4 h-[150px] dark:bg-[#202121]'
+                placeholder='Enter your research query...'
                 value={state.initialPrompt}
-                onChange={e => {
-                  setState(prev => ({ ...prev, initialPrompt: e.target.value }));
+                onChange={(e) => {
+                  setState((prev) => ({
+                    ...prev,
+                    initialPrompt: e.target.value,
+                  }));
                   handleTextareaResize();
                 }}
               />
             </div>
 
             {/* Controls section with top border removed */}
-            <div className="border-2 dark:border-gray-700 border-t-0 rounded-b-lg bg-white dark:bg-[#202121] px-6 py-3">
-              <div className="flex justify-between items-center">
-                <div className="flex gap-3">
-                  <div className="relative">
+            <div className='border-2 dark:border-gray-700 border-t-0 rounded-b-lg bg-white dark:bg-[#202121] px-6 py-3'>
+              <div className='flex justify-between items-center'>
+                <div className='flex gap-3'>
+                  <div className='relative'>
                     <Button
                       title='Research Depth'
-                      variant="outline"
+                      variant='outline'
                       onClick={handleDepthClick}
-                      className="depth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
+                      className='depth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
                       Depth: {state.depth || 1}
                     </Button>
                     {showDepthInput && (
-                      <div className="depth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10">
-                        <label className="block text-sm font-semibold mb-2 dark:text-white">
+                      <div className='depth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
+                        <label className='block text-sm font-semibold mb-2 dark:text-white'>
                           Select Depth (1-10)
                         </label>
                         <input
-                          type="number"
+                          type='number'
                           min={1}
                           max={10}
-                          className="w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                          className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
                           value={state.depth === null ? '' : state.depth}
-                          onChange={e => {
+                          onChange={(e) => {
                             const inputValue = e.target.value;
                             if (inputValue === '') {
-                              setState(prev => ({ ...prev, depth: null }));
+                              setState((prev) => ({ ...prev, depth: null }));
                             } else {
                               const value = parseInt(inputValue);
-                              setState(prev => ({
+                              setState((prev) => ({
                                 ...prev,
-                                depth: Math.max(1, Math.min(10, value))
+                                depth: Math.max(1, Math.min(10, value)),
                               }));
                             }
                           }}
                           onBlur={() => {
                             if (state.depth === null) {
-                              setState(prev => ({ ...prev, depth: 1 }));
+                              setState((prev) => ({ ...prev, depth: 1 }));
                             }
                           }}
                         />
@@ -432,41 +491,41 @@ export default function Home() {
                     )}
                   </div>
 
-                  <div className="relative">
+                  <div className='relative'>
                     <Button
                       title='Research Breadth'
-                      variant="outline"
+                      variant='outline'
                       onClick={handleBreadthClick}
-                      className="breadth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
+                      className='breadth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
                       Breadth: {state.breadth || 1}
                     </Button>
                     {showBreadthInput && (
-                      <div className="breadth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10">
-                        <label className="block text-sm font-semibold mb-2 dark:text-white">
+                      <div className='breadth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
+                        <label className='block text-sm font-semibold mb-2 dark:text-white'>
                           Select Breadth (1-10)
                         </label>
                         <input
-                          type="number"
+                          type='number'
                           min={1}
                           max={10}
-                          className="w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                          className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
                           value={state.breadth === null ? '' : state.breadth}
-                          onChange={e => {
+                          onChange={(e) => {
                             const inputValue = e.target.value;
                             if (inputValue === '') {
-                              setState(prev => ({ ...prev, breadth: null }));
+                              setState((prev) => ({ ...prev, breadth: null }));
                             } else {
                               const value = parseInt(inputValue);
-                              setState(prev => ({
+                              setState((prev) => ({
                                 ...prev,
-                                breadth: Math.max(1, Math.min(10, value))
+                                breadth: Math.max(1, Math.min(10, value)),
                               }));
                             }
                           }}
                           onBlur={() => {
                             if (state.breadth === null) {
-                              setState(prev => ({ ...prev, breadth: 1 }));
+                              setState((prev) => ({ ...prev, breadth: 1 }));
                             }
                           }}
                         />
@@ -474,41 +533,54 @@ export default function Home() {
                     )}
                   </div>
 
-                  <div className="relative">
+                  <div className='relative'>
                     <Button
                       title='Follow Up Questions'
-                      variant="outline"
+                      variant='outline'
                       onClick={handleFollowUpsClick}
-                      className="followups-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600"
+                      className='followups-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
                       Follow Ups: {state.followupQuestions || 5}
                     </Button>
                     {showFollowUpsInput && (
-                      <div className="followups-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10">
-                        <label className="block text-sm font-semibold mb-2 dark:text-white">
-                          Select Breadth (1-10)
+                      <div className='followups-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
+                        <label className='block text-sm font-semibold mb-2 dark:text-white'>
+                          Select Follow Ups (1-10)
                         </label>
                         <input
-                          type="number"
+                          type='number'
                           min={1}
                           max={10}
-                          className="w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                          value={state.followupQuestions === null ? '' : state.followupQuestions}
-                          onChange={e => {
+                          className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
+                          value={
+                            state.followupQuestions === null
+                              ? ''
+                              : state.followupQuestions
+                          }
+                          onChange={(e) => {
                             const inputValue = e.target.value;
                             if (inputValue === '') {
-                              setState(prev => ({ ...prev, followupQuestions: null }));
+                              setState((prev) => ({
+                                ...prev,
+                                followupQuestions: null,
+                              }));
                             } else {
                               const value = parseInt(inputValue);
-                              setState(prev => ({
+                              setState((prev) => ({
                                 ...prev,
-                                followupQuestions: Math.max(1, Math.min(10, value))
+                                followupQuestions: Math.max(
+                                  1,
+                                  Math.min(10, value)
+                                ),
                               }));
                             }
                           }}
                           onBlur={() => {
                             if (state.followupQuestions === null) {
-                              setState(prev => ({ ...prev, followupQuestions: 1 }));
+                              setState((prev) => ({
+                                ...prev,
+                                followupQuestions: 1,
+                              }));
                             }
                           }}
                         />
@@ -523,9 +595,11 @@ export default function Home() {
                   disabled={!state.initialPrompt}
                   onClick={handleInitialSubmit}
                   className={`rounded-full w-12 h-12 p-0 flex items-center justify-center transition-colors
-                    ${state.initialPrompt
-                      ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white'
-                      : 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-400'}`}
+                    ${
+                      state.initialPrompt
+                        ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white'
+                        : 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-400'
+                    }`}
                 >
                   <TbSend2 size={20} />
                 </Button>
@@ -537,27 +611,33 @@ export default function Home() {
 
       {/* Updated Log Section */}
       {state.step !== 'input' && (
-        <div className="mb-8">
-          <Accordion type="single" className='w-full' collapsible>
-            <AccordionItem value="item-1" className="border-2 dark:border-gray-700 rounded-lg">
-              <AccordionTrigger
-                className="px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline"
-              >
-                <div className="flex items-center gap-3 w-full overflow-hidden"> {/* Added overflow-hidden to the container */}
+        <div className='mb-8'>
+          <Accordion type='single' className='w-full' collapsible>
+            <AccordionItem
+              value='item-1'
+              className='border-2 dark:border-gray-700 rounded-lg'
+            >
+              <AccordionTrigger className='px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline'>
+                <div className='flex items-center gap-3 w-full overflow-hidden'>
+                  {' '}
+                  {/* Added overflow-hidden to the container */}
                   {status.loading ? (
-                    <Spinner className="w-5 h-5 flex-shrink-0 text-gray-700 dark:text-white" />
+                    <Spinner className='w-5 h-5 flex-shrink-0 text-gray-700 dark:text-white' />
                   ) : status.complete ? (
-                    <Check className="w-5 h-5 flex-shrink-0 text-green-500" />
+                    <Check className='w-5 h-5 flex-shrink-0 text-green-500' />
                   ) : null}
-                  <span className="truncate text-gray-900 dark:text-gray-100 font-medium">
+                  <span className='truncate text-gray-900 dark:text-gray-100 font-medium'>
                     {latestLog || status.message || 'Ready to begin research'}
                   </span>
                 </div>
               </AccordionTrigger>
-              <AccordionContent className="border-t bg-gray-100 dark:bg-[#313131]">
-                <div className="bg-gray-100 dark:bg-[#313131] p-4 rounded-b-lg">
+              <AccordionContent className='border-t bg-gray-100 dark:bg-[#313131]'>
+                <div className='bg-gray-100 dark:bg-[#313131] p-4 rounded-b-lg'>
                   {state.logs.map((log, idx) => (
-                    <div key={idx} className="py-1.5 text-gray-700 dark:text-white">
+                    <div
+                      key={idx}
+                      className='py-1.5 text-gray-700 dark:text-white'
+                    >
                       {log}
                     </div>
                   ))}
@@ -570,35 +650,42 @@ export default function Home() {
 
       {/* Updated Follow-up section */}
       {state.step === 'follow-up' && (
-        <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+        <div className='space-y-6'>
+          <h2 className='text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6'>
             Follow-up Questions
           </h2>
           {state.generatedFollowUpQuestions.map((question, idx) => (
-            <div key={idx} className="space-y-2">
-              <p className="font-bold text-gray-700 dark:text-gray-300">{question}</p>
+            <div key={idx} className='space-y-2'>
+              <p className='font-bold text-gray-700 dark:text-gray-300'>
+                {question}
+              </p>
               <textarea
-                className="w-full p-4 border-2 rounded-lg text-base font-medium 
+                className='w-full p-4 border-2 rounded-lg text-base font-medium 
                   focus:outline-none focus:ring-0 focus:border-gray-400
                   dark:bg-[#202121] dark:text-white dark:border-gray-700
                   dark:focus:border-[#007e81] transition-colors
-                  resize-none min-h-[120px]"
-                onChange={e => setState(prev => ({
-                  ...prev,
-                  followUpAnswers: { ...prev.followUpAnswers, [question]: e.target.value }
-                }))}
+                  resize-none min-h-[120px]'
+                onChange={(e) =>
+                  setState((prev) => ({
+                    ...prev,
+                    followUpAnswers: {
+                      ...prev.followUpAnswers,
+                      [question]: e.target.value,
+                    },
+                  }))
+                }
               />
             </div>
           ))}
-          <div className="flex justify-end mt-8">
+          <div className='flex justify-end mt-8'>
             <Button
               onClick={handleResearchStart}
-              className="text-black bg-white hover:text-white hover:bg-black
+              className='text-black bg-white hover:text-white hover:bg-black
                 dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white border border-black
-                transition-colors"
+                transition-colors'
             >
               Deep Research
-              <ArrowRight size={18} className="ml-2" />
+              <ArrowRight size={18} className='ml-2' />
             </Button>
           </div>
         </div>
@@ -606,13 +693,13 @@ export default function Home() {
       {/* dark:bg-[#007e81] dark:hover:bg-[#00676a] */}
       {/* Complete section */}
       {state.step === 'complete' && (
-        <div className="space-y-6">
+        <div className='space-y-6'>
           {/* Download button */}
-          <div className="flex justify-end">
+          <div className='flex justify-end'>
             <Button
-              variant="outline"
+              variant='outline'
               onClick={() => downloadReport('md')}
-              className="flex items-center gap-2 px-3 py-2 border border-black transition-colors hover:text-white hover:bg-black dark:bg-transparent dark:text-[#007e81] dark:border-[#007e81] dark:hover:hover:bg-[#00676a] dark:hover:text-white"
+              className='flex items-center gap-2 px-3 py-2 border border-black transition-colors hover:text-white hover:bg-black dark:bg-transparent dark:text-[#007e81] dark:border-[#007e81] dark:hover:hover:bg-[#00676a] dark:hover:text-white'
             >
               <Download size={16} />
               Download Markdown
@@ -620,23 +707,29 @@ export default function Home() {
           </div>
 
           {/* Report content with proper dark mode */}
-          <div className="prose dark:prose-invert max-w-none">
+          <div className='prose dark:prose-invert max-w-none'>
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw]}
               components={{
-                h1: ({ node, ...props }) => <h1 className="text-4xl font-bold mb-6" {...props} />,
-                h2: ({ node, ...props }) => <h2 className="text-3xl font-bold mt-8 mb-4" {...props} />,
-                h3: ({ node, ...props }) => <h3 className="text-2xl font-bold mt-6 mb-3" {...props} />,
+                h1: ({ node, ...props }) => (
+                  <h1 className='text-4xl font-bold mb-6' {...props} />
+                ),
+                h2: ({ node, ...props }) => (
+                  <h2 className='text-3xl font-bold mt-8 mb-4' {...props} />
+                ),
+                h3: ({ node, ...props }) => (
+                  <h3 className='text-2xl font-bold mt-6 mb-3' {...props} />
+                ),
                 a: ({ node, ...props }) => (
                   <a
-                    className="text-blue-600 hover:text-blue-800 underline"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    className='text-blue-600 hover:text-blue-800 underline'
+                    target='_blank'
+                    rel='noopener noreferrer'
                     {...props}
                   />
                 ),
-                p: ({ node, ...props }) => <p className="my-4" {...props} />,
+                p: ({ node, ...props }) => <p className='my-4' {...props} />,
               }}
             >
               {state.report}
@@ -646,44 +739,54 @@ export default function Home() {
       )}
 
       {state.step === 'processing' && (
-        <div className="space-y-6">
+        <div className='space-y-6'>
           {/* Logs accordion (collapsed by default) */}
-          <Accordion type="single" collapsible>
+          <Accordion type='single' collapsible>
             {/* ...existing logs accordion... */}
           </Accordion>
 
           {/* Sources accordion (expanded by default) */}
           {shouldShowSources && (
-            <Accordion type="single" collapsible defaultValue="sources">
-              <AccordionItem value="sources">
-                <AccordionTrigger className="text-xl font-bold">
+            <Accordion type='single' collapsible defaultValue='sources'>
+              <AccordionItem value='sources'>
+                <AccordionTrigger className='text-xl font-bold'>
                   All Sources
                 </AccordionTrigger>
                 <AccordionContent>
                   {state.sourcesLog.queries.map((query, idx) => (
-                    <Accordion key={idx} type="single" collapsible className="ml-4 mb-4">
+                    <Accordion
+                      key={idx}
+                      type='single'
+                      collapsible
+                      className='ml-4 mb-4'
+                    >
                       <AccordionItem value={`query-${idx}`}>
-                        <AccordionTrigger className="text-lg font-semibold">
+                        <AccordionTrigger className='text-lg font-semibold'>
                           {query.query} - {query.objective}
                         </AccordionTrigger>
                         <AccordionContent>
                           {/* Successfully scraped section */}
                           {query.successfulScrapes.length > 0 && (
-                            <div className="mb-4">
-                              <h4 className="font-medium mb-2 text-green-600 dark:text-green-400">
-                                Successfully Scraped ({query.successfulScrapes.length})
+                            <div className='mb-4'>
+                              <h4 className='font-medium mb-2 text-green-600 dark:text-green-400'>
+                                Successfully Scraped (
+                                {query.successfulScrapes.length})
                               </h4>
-                              <ol className="list-decimal ml-4 space-y-4">
+                              <ol className='list-decimal ml-4 space-y-4'>
                                 {query.successfulScrapes.map((scrape, sIdx) => (
-                                  <li key={sIdx} className="text-gray-800 dark:text-gray-200">
-                                    <a href={scrape.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-blue-600 dark:text-blue-400 hover:underline"
+                                  <li
+                                    key={sIdx}
+                                    className='text-gray-800 dark:text-gray-200'
+                                  >
+                                    <a
+                                      href={scrape.url}
+                                      target='_blank'
+                                      rel='noopener noreferrer'
+                                      className='text-blue-600 dark:text-blue-400 hover:underline'
                                     >
                                       {scrape.url}
                                     </a>
-                                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                                    <p className='mt-2 text-sm text-gray-600 dark:text-gray-300'>
                                       {scrape.extractedContent}
                                     </p>
                                   </li>
@@ -695,12 +798,15 @@ export default function Home() {
                           {/* Failed scrapes section */}
                           {query.failedScrapes.length > 0 && (
                             <div>
-                              <h4 className="font-medium mb-2 text-red-500">
+                              <h4 className='font-medium mb-2 text-red-500'>
                                 Failed to Scrape ({query.failedScrapes.length})
                               </h4>
-                              <ul className="list-disc ml-4 space-y-2">
+                              <ul className='list-disc ml-4 space-y-2'>
                                 {query.failedScrapes.map((fail, fIdx) => (
-                                  <li key={fIdx} className="text-sm text-gray-500">
+                                  <li
+                                    key={fIdx}
+                                    className='text-sm text-gray-500'
+                                  >
                                     {fail.url} - {fail.error}
                                   </li>
                                 ))}

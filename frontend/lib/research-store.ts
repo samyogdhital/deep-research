@@ -1,7 +1,5 @@
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
-import { getAllReports } from './db';
-import { refreshSidebarAction } from './server-actions/reports'
 
 export const socket = io(process.env.NEXT_PUBLIC_API_BASE_URL as string, {
     withCredentials: true,
@@ -16,7 +14,9 @@ export interface OngoingResearch {
 }
 
 interface ResearchStore {
+    reports: Report[];
     ongoingResearch: OngoingResearch[];
+    setReports: (reports: Report[]) => void;
     setOngoingResearch: (research: OngoingResearch[]) => void;
     addResearch: (research: OngoingResearch) => void;
     removeResearch: (id: string) => void;
@@ -24,7 +24,9 @@ interface ResearchStore {
 }
 
 export const useResearchStore = create<ResearchStore>((set) => ({
+    reports: [],
     ongoingResearch: [],
+    setReports: (reports) => set({ reports }),
     setOngoingResearch: (research) => set({ ongoingResearch: research }),
     addResearch: (research) =>
         set((state) => ({
@@ -42,17 +44,25 @@ export const useResearchStore = create<ResearchStore>((set) => ({
         }))
 }));
 
-// Keep only necessary socket events
-socket.on('ongoing-research-update', (research: OngoingResearch[]) => {
-    useResearchStore.getState().setOngoingResearch(research);
-});
+if (typeof window !== 'undefined') {
+    socket.on('ongoing-research-update', (research: OngoingResearch[]) => {
+        useResearchStore.getState().setOngoingResearch(research);
+    });
 
-socket.on('research-completed', async ({ id }) => {
-    useResearchStore.getState().removeResearch(id);
-    // Refresh sidebar using server action
-    await refreshSidebarAction();
-});
+    socket.on('research-completed', async ({ id, researchId }) => {
+        useResearchStore.getState().removeResearch(researchId);
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`);
+            if (response.ok) {
+                const reports = await response.json();
+                useResearchStore.getState().setReports(reports);
+            }
+        } catch (error) {
+            console.error('Failed to fetch reports:', error);
+        }
+    });
 
-socket.on('connect', () => {
-    socket.emit('request-ongoing-research');
-});
+    socket.on('connect', () => {
+        socket.emit('request-ongoing-research');
+    });
+}

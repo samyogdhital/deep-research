@@ -1,5 +1,3 @@
-import { revalidatePath, revalidateTag } from 'next/cache';
-
 // Remove IndexedDB related imports and interfaces
 export async function saveReport(report: {
     report_title: string;
@@ -61,7 +59,7 @@ export async function getReport(id: string) {
 
 export async function getAllReports() {
     const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
-        cache: 'no-store',
+        // cache: 'no-store',
         next: { tags: ['reports'] }
     });
     if (!response.ok) throw new Error('Failed to fetch reports');
