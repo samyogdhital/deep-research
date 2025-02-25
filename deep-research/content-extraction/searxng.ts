@@ -1,5 +1,5 @@
-import { OutputManager } from './output-manager';
-import { SearxResponse, SearxResult } from './types';
+import { OutputManager } from '../src/output-manager';
+import { SearxResponse, SearxResult } from '../src/types';
 
 
 export class SearxNG {

@@ -6,8 +6,8 @@ import { TokenTracker } from './token-tracker';
 import { generateQueriesWithObjectives } from './agent/query-generator';
 import { WebsiteAnalyzer } from './agent/website-analyzer';
 import { type TrackedLearning } from './agent/report-writer';
-import { SearxNG } from './searxng';
-import { Firecrawl } from './firecrawl';
+import { SearxNG } from '../content-extraction/searxng';
+import { Firecrawl } from '../content-extraction/firecrawl';
 import { type AgentResult, type ResearchProgress, type ResearchResult } from './types';
 
 // Initialize output manager
@@ -72,11 +72,20 @@ Quote: "${learning.sourceText}"
   return errorOutput;
 }
 
+// Add interface for source update callback
+export interface SourceUpdate {
+  query: string;
+  url: string;
+  content: string;
+  timestamp?: string;
+}
+
 export async function deepResearch({
   query_to_find_websites,
   breadth,
   depth,
   onProgress,
+  onSourceUpdate,
   signal,
   parentTokenCount = 0
 }: {
@@ -84,6 +93,7 @@ export async function deepResearch({
   breadth: number;
   depth: number;
   onProgress?: (progress: ResearchProgress) => void;
+  onSourceUpdate?: (data: SourceUpdate) => void;  // Add this parameter
   signal?: AbortSignal;
   parentTokenCount?: number;
 }): Promise<ResearchResult> {
@@ -130,8 +140,26 @@ export async function deepResearch({
         .filter(url => !scrapedContents.find(c => c.url === url));
       failedUrls.push(...scrapeFails);
 
-      // Process successful scrapes
-      // ...existing website analysis and crunching logic...
+      // When processing scraped content
+      for (const content of scrapedContents) {
+        try {
+          const analysis = await websiteAnalyzer.analyzeContent(content, query.objective);
+
+          // Call onSourceUpdate when we have new content
+          if (analysis && onSourceUpdate) {
+            onSourceUpdate({
+              query: query.query,
+              url: content.url,
+              content: analysis.content,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          // ...rest of the existing content processing code...
+        } catch (error) {
+          // ...existing error handling...
+        }
+      }
 
       // Handle depth recursion
       if (depth > 1 && totalTokenCount < MAX_TOTAL_TOKENS) {

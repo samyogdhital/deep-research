@@ -6,7 +6,7 @@
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { OutputManager } from '../output-manager';
-import { ScrapedContent } from '../firecrawl';
+import { ScrapedContent } from '../../content-extraction/firecrawl';
 
 export interface WebsiteAnalysis {
   content: string;

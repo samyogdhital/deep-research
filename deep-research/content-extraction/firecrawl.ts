@@ -1,5 +1,5 @@
-import { OutputManager } from './output-manager';
-import { FirecrawlResponse, ScrapedContent } from './types';
+import { OutputManager } from '../src/output-manager';
+import { FirecrawlResponse, ScrapedContent } from '../src/types';
 
 
 export class Firecrawl {
