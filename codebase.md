@@ -67,3 +67,68 @@ And also take a look at server .ts fileand that is also responsible for handling
 But remember whenever we are doing an API call you need to make sure that we have a definite schema and for that use Google generative package that we are already implementing there and if you need to take some reference then take a look atright final report forms on that we have inside deep dash research.Ts filethe endand under that you fill wind this 
 
 Generative config and inside that you need to keep the schema and so always give the schema ok and to define the schema as wellyou need to make sure the schema is type safe and yeah use the way we are currently defining this schema and make sure whenever you are doing LLM call make sure there is a definite schemaright and and and the response that you get from LLM needs to be parsed ok because you will get the Json but it will be stringified and you need to parse that to convert it into Json format so that is what you need to doand other thing isso the final report writing is that we are having in this code base don't change the format of that ok because that is already specified in the front end so don't change that whatever you need to change make sure that you absolutely need to make changes and then only change ok yeahand if if possible don't try to change the schema of llm call that we are doing currently yeahdon't try to change that but if you absolutely need to make sure you change that but but whatever you do like how many agent do you invoke make sure the what you need to verify is the information that you are extracting whether it is extracting by information crunching agent or website analyzing agent or the report rising it needs to precisely know that the information that I am processing the information that I am working with this is extracting extracted from this specific website so this information needs to be preservedwhatever whenever you are ok make sure you're doing thatyou need to preserve the source of the information from which website we are getting that because if we remove that then it doesn't make sense right from where did you to that information whether you hallucinated or it's information that you took from a source like no one can tell and this will decrease the credibility of your this will decrease the credibility of this agent so let's make sure that as well and so for that if you need to change some schema right where with the schema you getthe precise website and the content the exact content that was taken from that website right if if you are able to make sure this passes through every layer of llm call we are doing then that is awesome so let's do that ok let's implement this feature 100 percent I have given a full permission to do that,
+
+
+### High Level Flow
+```
+    A[Initial Query] --> B[Generate 5 SERP Queries Level 1]
+    B --> C[Process Each Query]
+    C --> D[Recursive Depth with Math.ceil(breadth/2)]
+    D --> E[Level 2: 3 Queries]
+    E --> F[Level 3: 2 Queries]
+    F --> G[Level 4: 1 Query]
+    G --> H[Level 5: 1 Query]
+```
+
+### Detailed Query Flow
+- Depth Level 1 (Initial)
+
+    - Breadth = 5
+    - Generates 5 SERP queries
+    - For each query:
+        - Get search results (up to 7 URLs per query)
+        - Scrape websites
+        - Analyze content
+        - Token tracking & information crunching if needed
+
+- Depth Level 2
+
+    - Breadth = Math.ceil(5/2) = 3
+    - Generates 3 new queries based on findings
+    - Process same as level 1
+    - Total queries so far: 5 + (5×3) = 20
+
+- Depth Level 3
+
+    - Breadth = Math.ceil(3/2) = 2
+    - Generates 2 queries per previous query
+    - Total queries so far: 20 + (15×2) = 50
+
+- Depth Level 4
+
+    - Breadth = Math.ceil(2/2) = 1
+    - Generates 1 query per previous query
+    - Total queries so far: 50 + (30×1) = 80
+
+- Depth Level 5
+
+    - Breadth = 1
+    - Final deep dive with 1 query per previous query
+    - Total queries so far: 80 + 30 = 110
+
+### Per Query Process
+for each query:
+  1. Generate SERP results (gets max 7 top URLs)
+  2. Scrape websites
+  3. For each successful scrape:
+     - Analyze content against objective
+     - Track tokens
+     - If tokens > 50k:
+       - Trigger information crunching
+     - Store results
+  4. After all websites processed:
+     - Final information crunching if needed
+  5. Start recursive depth if depth > 1
+
+### Image representation of the whole process.
+  ![alt text](image.png)
