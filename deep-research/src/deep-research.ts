@@ -9,6 +9,7 @@ import { encode } from 'gpt-tokenizer';  // Add this import
 import * as fs from 'fs/promises';
 import path from 'path';
 import { TokenTracker } from './token-tracker';
+import { generateQueriesWithObjectives, QueryWithObjective } from './agent/query-generator';
 
 // Initialize output manager for coordinated console/progress output
 export const output = new OutputManager();
@@ -26,66 +27,6 @@ function log(...args: any[]) {
 
 // increase this if you have higher API rate limits
 const ConcurrencyLimit = 1;
-
-
-// Update generateQueriesWithObjectives to use SchemaType
-async function generateQueriesWithObjectives(context: string, numQueries: number): Promise<QueryWithObjective[]> {
-  const schema: Schema = {
-    type: SchemaType.OBJECT,
-    properties: {
-      queries: {
-        type: SchemaType.ARRAY,
-        items: {
-          type: SchemaType.OBJECT,
-          properties: {
-            query: {
-              type: SchemaType.STRING,
-              description: "Short Very specific keyword to do serp query, get the website list under each query, scrape the websites and get 100% precise answer to the user's question. This must be 4-5 word max and should only use plain english."
-            },
-            objective: {
-              type: SchemaType.STRING,
-              description: "The highly detailed precise objective of the query that we generated for websites analyzing agent to scrape on and analyze whether this objective is met or not analyzing website content."
-            }
-          },
-          required: ["query", "objective"]
-        },
-      }
-    },
-    required: ["queries"]
-  };
-
-  try {
-    const { response } = await generateObject({
-      system: `You are the high quality SERP query generating agent. Your role is to analyze the user’s query and followup questions list. Then generate a bunch of short very detailed serp queries that in total entirely summarizes the entire question user is asking. Such that if you scrape the list of websites that you get under each of these queires, there is 100% chance that user's question will be 100% precisely answered in great highly technical detail. Today is ${new Date().toISOString()}. Follow these instructions when responding:
-    - Your serp query must be short and 100% targeted and precise that can accurately summarizes a domain of the entire question that user is aksing.
-    - Use your reasoning ability to understand the user's question and asking. Then only generate the queries.
-    `,
-      prompt: `Given this research context, generate ${numQueries} strategic search queries to find the list of websites we can scrape and get the percise and 100% answer to the question user is asking below.
-
-CONTEXT:
-${context}
-`,
-      model: process.env.QUESTION_GENERATING_MODEL as string,
-      generationConfig: {
-        responseSchema: schema
-      }
-    });
-
-    const result = JSON.parse(response.text());
-
-    if (!result?.queries || !Array.isArray(result.queries) || result.queries.length === 0) {
-      log('Failed to generate valid queries');
-      throw new Error('No valid queries generated');
-    }
-
-    log(`Generated ${result.queries.length} queries`);
-    return result.queries;
-
-  } catch (error) {
-    log('Error generating queries:', error);
-    throw error;
-  }
-}
 
 async function searchSerpResults(query: string): Promise<SearxResult[]> {
   output.log(`Searching for: ${query}`);
@@ -962,11 +903,6 @@ export type ResearchResult = {
   visitedUrls: string[];
 };
 
-// New interface for query objectives
-interface QueryWithObjective {
-  query: string;
-  objective: string;
-}
 
 // New interface for website analysis results
 interface WebsiteAnalysis {
