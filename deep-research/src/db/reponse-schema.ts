@@ -1,3 +1,8 @@
+// IMPORTANT: Do not remove the comment at all. And also do not remove the below schema at all ok?
+// This is the full schema that we need to send to the frontend after we completed the deep research. This deep research should handle as many depth as well as breadth. And in the db, data must be stored progressively in the same schema as below. This is the final schema that will be in the db. Every step we take, we must iteratively and progressively store that data in the reuqired placed required place from the below schema in the db.
+// Every step we do on the backend will be saved on the db not once but progressively, every step. And on the frontend as well through websockets. 
+
+
 
 const finalschema = {
     serpQueries: [
