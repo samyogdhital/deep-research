@@ -37,6 +37,7 @@ export class Firecrawl {
                     })
                 });
 
+                // Remove 404 handling - treat all non-OK responses as failures
                 if (!response.ok) {
                     throw new Error(`Scraping failed with status ${response.status}`);
                 }

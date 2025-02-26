@@ -81,7 +81,7 @@ Initial Query: ${prompt}
 Follow-up Answers:
 ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n')}`;
 
-        const result = await deepResearch({
+        const { learnings, visitedUrls, failedUrls } = await deepResearch({
             query_to_find_websites: fullContext,
             depth,
             breadth,
@@ -95,8 +95,8 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
         const reportWriter = new ReportWriter(output);
         const report = await reportWriter.generateReport({
             prompt,
-            learnings: result.learnings,
-            visitedUrls: result.visitedUrls
+            learnings: learnings,
+            visitedUrls: visitedUrls
         });
 
         const db = await ReportDB.getInstance();
@@ -113,7 +113,7 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
             reportId,
             research.sourcesLog
         );
-        res.json(response);
+        res.json({ ...response, failedUrls });
 
     } catch (error) {
         const errorResponse = wsManager.handleResearchError(error, req.body.researchId);
@@ -134,7 +134,9 @@ app.get('/api/reports', async (req, res) => {
     res.json(reports);
 });
 
-const PORT = process.env.PORT || 3001;
+// `npm run debug -- 1001` to debug
+const debugPort = process.argv.slice(2)[0]
+const PORT = process.env.PORT || debugPort || 3001;
 httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

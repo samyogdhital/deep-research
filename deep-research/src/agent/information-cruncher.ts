@@ -15,6 +15,11 @@ export class InformationCruncher {
     private static readonly MAX_TOKENS = 50000;
     private objective: string;
     private contents: Array<{ content: string; url: string; quote: string }> = [];
+    private querySpecificContent = new Map<string, {
+        content: string,
+        sources: Array<{ url: string, quote: string }>,
+        tokens: number
+    }>();
 
     constructor(objective: string) {
         this.objective = objective;
@@ -91,5 +96,13 @@ Requirements:
 
     async finalCrunch(): Promise<CrunchResult | null> {
         return this.contents.length > 0 ? this.crunchContent() : null;
+    }
+
+    async crunchQueryContent(queryId: string, objective: string): Promise<CrunchResult> {
+        const content = this.querySpecificContent.get(queryId);
+        if (!content) return null;
+
+        // Crunch information specific to this query's objective
+        // ...crunching logic...
     }
 }

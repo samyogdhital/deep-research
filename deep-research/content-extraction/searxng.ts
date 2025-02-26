@@ -15,7 +15,6 @@ export class SearxNG {
 
     async search(query: string): Promise<SearxResult[]> {
         this.log(`Searching for: ${query}`);
-        this.log(`Connected with Searxng at: ${process.env.SEARXNG_BASE_URL}`);
 
         try {
             if (!process.env.SEARXNG_BASE_URL) {
@@ -24,9 +23,9 @@ export class SearxNG {
 
             const formattedQuery = encodeURIComponent(query.trim());
             const response = await fetch(
-                `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0&engines=google,bing,duckduckgo`,
+                `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0`,
                 {
-                    method: "GET",
+                    method: "POST",
                     headers: {
                         'Accept': 'application/json'
                     }

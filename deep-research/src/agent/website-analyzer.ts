@@ -6,7 +6,7 @@
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { OutputManager } from '../output-manager';
-import { ScrapedContent } from '../../content-extraction/firecrawl';
+import { ScrapedContent } from '../types';
 
 export interface WebsiteAnalysis {
   content: string;
@@ -47,8 +47,7 @@ export class WebsiteAnalyzer {
   }
 
   async analyzeContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
-    this.output.log(`Analyzing website: ${content.url}`);
-    this.log(`Started analyzing website: ${content.url}`, "🚀🚀");
+    this.output.log(`🔃🔃 Analyzing website: ${content.url} with content character count: ${content.markdown.length}`);
 
     try {
       const { response } = await generateObject({
@@ -82,11 +81,11 @@ Return:
       const websiteSummary: { isRelevant: boolean; extractedInfo: string, supportingQuote: string } = JSON.parse(response.text());
 
       if (!websiteSummary.isRelevant) {
-        this.log(`Completed analyzing website: ${content.url} - Not relevant😔😔`);
+        this.log(`👎👎 Analyzed website: ${content.url} - Not relevant 😔😔`);
         return null;
       }
 
-      this.log(`Completed analyzing website: ${content.url} - Relevant 😀😀✅✅`);
+      this.log(`✅✅ Analyzed website: ${content.url} - Relevant 😀😀`);
       return {
         content: websiteSummary.extractedInfo,
         sourceUrl: content.url,
@@ -95,7 +94,7 @@ Return:
       };
 
     } catch (error) {
-      this.log(`Error analyzing content from ${content.url} 😭😭 :`, error);
+      this.log(`💀💀 Error analyzing content from ${content.url} 😭😭 :`, error);
       return null;
     }
   }

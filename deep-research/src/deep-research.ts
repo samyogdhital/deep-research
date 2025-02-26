@@ -9,6 +9,7 @@ import { type TrackedLearning } from './agent/report-writer';
 import { SearxNG } from '../content-extraction/searxng';
 import { Firecrawl } from '../content-extraction/firecrawl';
 import { type AgentResult, type ResearchProgress, type ResearchResult } from './types';
+import { encode } from 'gpt-tokenizer';
 
 // Initialize output manager
 export const output = new OutputManager();
@@ -118,7 +119,16 @@ export async function deepResearch({
   try {
     // Core research logic
     const queries = await generateQueriesWithObjectives(query_to_find_websites, breadth);
+
+    // Add safety check for empty queries
+    if (!queries?.length) {
+      throw new Error('No valid search queries could be generated');
+    }
+
     const crunchers = new Map<string, InformationCruncher>();
+
+    const TOKEN_CHUNK_SIZE = 50000; // 50k tokens per chunk
+    let currentQueryTokens = 0;
 
     for (const query of queries) {
       if (signal?.aborted) throw new Error('Research aborted');
@@ -140,25 +150,58 @@ export async function deepResearch({
         .filter(url => !scrapedContents.find(c => c.url === url));
       failedUrls.push(...scrapeFails);
 
-      // When processing scraped content
+      // Add validation here - if no content was scraped, continue to next query
+      if (!scrapedContents.length) continue;
+
+      // Process successful scrapes
+      let hasValidContent = false; // Track if we got any valid content
+
+      // Reset token count for each query
+      currentQueryTokens = 0;
+
       for (const content of scrapedContents) {
         try {
           const analysis = await websiteAnalyzer.analyzeContent(content, query.objective);
 
-          // Call onSourceUpdate when we have new content
-          if (analysis && onSourceUpdate) {
-            onSourceUpdate({
+          if (analysis?.meetsObjective) {
+            hasValidContent = true;
+            // Add to results array
+            results.push({
+              content: analysis.content,
+              sourceUrl: content.url,
+              sourceText: analysis.sourceText,
+              objective: query.objective
+            });
+
+            // We're tracking successful analyses but never adding to visitedUrls!
+            visitedUrls.push(content.url);  // <-- This line needs to be added
+            onSourceUpdate?.({
               query: query.query,
               url: content.url,
               content: analysis.content,
               timestamp: new Date().toISOString()
             });
-          }
 
-          // ...rest of the existing content processing code...
+            // Track tokens
+            currentQueryTokens += encode(analysis.content + analysis.sourceText).length;
+
+            // If we hit token limit, crunch information before continuing
+            if (currentQueryTokens >= TOKEN_CHUNK_SIZE) {
+              const crunchedInfo = await cruncher.crunchContent();
+              // Store crunched results and reset token count
+              currentQueryTokens = 0;
+            }
+          }
         } catch (error) {
-          // ...existing error handling...
+          failedUrls.push(content.url);
+          continue; // Skip failed analysis but continue with others
         }
+      }
+
+      // If this query produced no valid content, try another query
+      if (!hasValidContent) {
+        log(`No valid content found for query: ${query.query}. Trying next query...`);
+        continue;
       }
 
       // Handle depth recursion
@@ -183,9 +226,15 @@ export async function deepResearch({
       }
     }
 
+    // Validate final results before returning
+    if (!results.length) {
+      throw new Error('Research failed: No valid content found from any sources');
+    }
+
     return {
       learnings: results,
-      visitedUrls: [...new Set(visitedUrls)]
+      visitedUrls: [...new Set(visitedUrls)],
+      failedUrls: [...new Set(failedUrls)]
     };
 
   } catch (error) {

@@ -4,7 +4,8 @@
   "main": "index.ts",
   "scripts": {
     "prod": "tsx --env-file=.env.prod server.ts",
-    "dev": "tsx watch --env-file=.env.local server.ts"
+    "dev": "tsx watch --env-file=.env.local server.ts",
+    "debug": "tsx watch --env-file=.env.local server.ts"
   },
   "author": "",
   "license": "ISC",

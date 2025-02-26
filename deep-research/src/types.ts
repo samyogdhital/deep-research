@@ -83,4 +83,5 @@ export type ResearchProgress = {
 export type ResearchResult = {
     learnings: TrackedLearning[];
     visitedUrls: string[];
+    failedUrls: string[];
 };
