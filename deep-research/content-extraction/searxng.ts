@@ -1,7 +1,6 @@
 import { OutputManager } from '../src/output-manager';
 import { SearxResponse, SearxResult } from '../src/types';
 
-
 export class SearxNG {
     private output: OutputManager;
 
@@ -10,44 +9,87 @@ export class SearxNG {
     }
 
     private log(...args: any[]) {
+        console.log('[SearxNG]', ...args);
         this.output.log(...args);
     }
 
     async search(query: string): Promise<SearxResult[]> {
-        this.log(`Searching for: ${query}`);
+        console.log(`[SearxNG] Starting search for: ${query}`);
 
         try {
             if (!process.env.SEARXNG_BASE_URL) {
+                console.error('[SearxNG] Missing configuration:', {
+                    hasBaseUrl: !!process.env.SEARXNG_BASE_URL
+                });
                 throw new Error('SEARXNG_BASE_URL not configured');
             }
 
             const formattedQuery = encodeURIComponent(query.trim());
-            const response = await fetch(
-                `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year&safesearch=0`,
-                {
-                    method: "POST",
-                    headers: {
-                        'Accept': 'application/json'
-                    }
+            const url = `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year`;
+
+            console.log(`[SearxNG] Making request:`, {
+                url,
+                query: formattedQuery
+            });
+
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    'Accept': 'application/json'
                 }
-            );
+            });
+
+            console.log(`[SearxNG] Response status:`, {
+                status: response.status,
+                ok: response.ok,
+                statusText: response.statusText
+            });
 
             if (!response.ok) {
-                throw new Error(`Search failed with status ${response.status}: ${await response.text()}`);
+                const errorText = await response.text();
+                console.error(`[SearxNG] Search failed:`, {
+                    status: response.status,
+                    error: errorText
+                });
+                throw new Error(`Search failed with status ${response.status}`);
             }
 
-            const data: SearxResponse = await response.json();
+            const text = await response.text();
+            console.log(`[SearxNG] Raw response:`, text.substring(0, 200) + '...');
 
-            if (!data.results?.length) {
-                throw new Error(`No search results found for query: ${query}`);
-            }
+            const data: SearxResponse = JSON.parse(text);
+            const results = data.results || [];
 
-            this.log(`Search found ${data.results.length} results for query: ${query}`);
-            return data.results.slice(0, 7);
+            console.log(`[SearxNG] Search results:`, {
+                total: results.length,
+                sample: results.slice(0, 2).map(r => ({
+                    url: r.url,
+                    title: r.title
+                }))
+            });
+
+            // Filter out results without URLs and map to SearxResult type
+            const validResults = results
+                .filter(r => r.url && r.title)
+                .map(r => ({
+                    url: r.url,
+                    title: r.title,
+                    content: '',  // Will be populated by scraper
+                    markdown: ''  // Will be populated by scraper
+                } as SearxResult));
+
+            console.log(`[SearxNG] Search complete:`, {
+                query,
+                totalResults: results.length,
+                validResults: validResults.length,
+                returnedResults: Math.min(validResults.length, 7)
+            });
+
+            return validResults.slice(0, 7);
 
         } catch (error) {
-            this.log('Error during search:', error);
-            throw new Error(`Search failed: ${error.message}`);
+            console.error(`[SearxNG] Search error:`, error);
+            return []; // Return empty array instead of throwing
         }
     }
 }

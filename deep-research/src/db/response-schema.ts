@@ -5,6 +5,7 @@
 
 
 const finalschema = {
+    report_id: "asdf1234-asdfasdf123-asdfas123-asdf123", //"Unique identifyer for this whole research, this value will be set when we start the deep research only not before that.",
     initial_query: "User's initial detailed query that user gives us.",
     depth: 1, // This value must be between 1 - 10. User will give this value as well. This defines how much deep we have to go to in particular topic taking pervious learnings into considerations.
     breadth: 1, // This value also must be bewteen 1 - 10. User will give this value as well. This defines how much breadth do we cover. And prompt query generator agent will generate that much queries in a given depth.
@@ -59,7 +60,6 @@ const finalschema = {
     },
     report: {
         title: "Report title",
-        report_id: 123 - 12312 - 1231 - 23 - 123, //"Unique identifyer for this report",
         sections: [
             {
                 rank: "Section rank, at which rank show we show this section? This is also the identifyer of this particular section ok?",

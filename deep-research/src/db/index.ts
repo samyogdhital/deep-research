@@ -2,88 +2,136 @@ import { Low } from 'lowdb'
 import { JSONFile } from 'lowdb/node'
 import path from 'path'
 import fs from 'fs/promises'
+import { ResearchData, SerpQuery, FollowUpQnA, Report, InformationCrunchingResult, ScrapedWebsite } from './schema'
 
-type ResearchSourcesLog = {
-    queries: Array<{
-        query: string;
-        objective: string;
-        successfulScrapes: Array<{
-            url: string;
-            extractedContent: string;
-        }>;
-        failedScrapes: Array<{
-            url: string;
-            error: string;
-        }>;
-    }>;
-    lastUpdated: string;
-}
-
-type Report = {
-    id: string;
-    report_title: string;
-    report: string;
-    sourcesLog: ResearchSourcesLog;
-    timestamp: number;
-    isVisited: boolean; // Add this field
-}
-
-type DBData = {
+interface DBData {
+    researches: ResearchData[];
     reports: Report[];
 }
 
 const defaultData: DBData = {
+    researches: [],
     reports: []
 }
 
-class ReportDB {
+class ResearchDB {
+    private static instance: ResearchDB;
     private db: Low<DBData>;
-    private static instance: ReportDB;
     private static dataDir: string;
 
     private constructor() {
-        ReportDB.dataDir = path.join(process.cwd(), 'data');
-        const dbPath = path.join(ReportDB.dataDir, 'reports.json');
+        ResearchDB.dataDir = path.join(process.cwd(), 'data');
+        const dbPath = path.join(ResearchDB.dataDir, 'researches.json');
         const adapter = new JSONFile<DBData>(dbPath);
         this.db = new Low(adapter, defaultData);
     }
 
-    static async getInstance(): Promise<ReportDB> {
-        if (!ReportDB.instance) {
-            // Create data directory if it doesn't exist
+    static async getInstance(): Promise<ResearchDB> {
+        if (!ResearchDB.instance) {
             try {
                 await fs.mkdir(path.join(process.cwd(), 'data'), { recursive: true });
-            } catch (err) {
-                if (err.code !== 'EEXIST') {
-                    throw err;
+            } catch (error) {
+                if (error instanceof Error && error.message.includes('EEXIST')) {
+                    // Directory already exists, ignore
+                } else {
+                    throw error;
                 }
             }
 
-            ReportDB.instance = new ReportDB();
-            await ReportDB.instance.db.read();
+            ResearchDB.instance = new ResearchDB();
+            await ResearchDB.instance.db.read();
         }
-        return ReportDB.instance;
+        return ResearchDB.instance;
     }
 
-    async saveReport(report: Omit<Report, 'id' | 'timestamp' | 'isVisited'>): Promise<string> {
+    async initializeResearch(initial_query: string, depth: number, breadth: number, followUps_num: number): Promise<string> {
         await this.db.read();
-
-        const id = crypto.randomUUID();
-        const newReport = {
-            ...report,
-            id,
-            timestamp: Date.now(),
-            isVisited: false // Set default value
+        const report_id = crypto.randomUUID();
+        const newResearch: ResearchData = {
+            report_id,
+            initial_query,
+            depth,
+            breadth,
+            followUps_num,
+            followUps_QnA: [],
+            serpQueries: [],
+            information_crunching_agent: {
+                serpQueries: []
+            },
+            report: {
+                title: '',
+                report_id,
+                sections: [],
+                citedUrls: [],
+                isVisited: false
+            }
         };
-
-        this.db.data.reports.push(newReport);
+        this.db.data.researches.push(newResearch);
         await this.db.write();
-        return id;
+        return report_id;
     }
 
-    async getReport(id: string): Promise<Report | null> {
+    async addFollowUpQnA(researchId: string, followUpQnA: FollowUpQnA): Promise<boolean> {
         await this.db.read();
-        return this.db.data.reports.find(r => r.id === id) || null;
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return false;
+        research.followUps_QnA.push(followUpQnA);
+        await this.db.write();
+        return true;
+    }
+
+    async addSerpQuery(researchId: string, serpQuery: SerpQuery): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return false;
+        research.serpQueries.push(serpQuery);
+        await this.db.write();
+        return true;
+    }
+
+    async updateSerpQueryResults(researchId: string, queryRank: number, successfulWebsites: ScrapedWebsite[], failedWebsites: string[]): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return false;
+        const query = research.serpQueries.find(q => q.query_rank === queryRank);
+        if (!query) return false;
+        query.successful_scraped_websites = successfulWebsites;
+        query.failedWebsites = failedWebsites;
+        await this.db.write();
+        return true;
+    }
+
+    async deleteReport(id: string): Promise<boolean> {
+        await this.db.read();
+        const reportToDelete = this.db.data.reports.find(r => r.report_id === id);
+        if (!reportToDelete) return false;
+
+        this.db.data.reports = this.db.data.reports.filter(r => r.report_id !== id);
+        await this.db.write();
+        return true;
+    }
+
+    async clearAllReports(): Promise<boolean> {
+        await this.db.read();
+        const hadReports = this.db.data.reports.length > 0;
+
+        this.db.data.reports = [];
+        await this.db.write();
+
+        await this.db.read();
+        const isEmptyNow = this.db.data.reports.length === 0;
+
+        return hadReports && isEmptyNow;
+    }
+
+    async markReportAsVisited(id: string): Promise<boolean> {
+        await this.db.read();
+        const report = this.db.data.reports.find(r => r.report_id === id);
+        if (!report) return false;
+
+        report.isVisited = true;
+        await this.db.write();
+        return true;
     }
 
     async getAllReports(): Promise<Report[]> {
@@ -91,56 +139,44 @@ class ReportDB {
         return this.db.data.reports;
     }
 
-    async updateReportTitle(id: string, newTitle: string): Promise<boolean> {
+    async saveReport(report: Report): Promise<string> {
         await this.db.read();
-        const report = this.db.data.reports.find(r => r.id === id);
-        if (!report) return false;
+        this.db.data.reports.push(report);
+        await this.db.write();
+        return report.report_id;
+    }
 
-        report.report_title = newTitle;
+    async addCrunchedInformation(researchId: string, crunchedInfo: InformationCrunchingResult): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return false;
+        research.information_crunching_agent.serpQueries.push(crunchedInfo);
         await this.db.write();
         return true;
     }
 
-    async deleteReport(id: string): Promise<boolean> {
-        await this.db.read(); // Ensure fresh data
-        const initialLength = this.db.data.reports.length;
-        const reportToDelete = this.db.data.reports.find(r => r.id === id);
-
-        if (!reportToDelete) return false;
-
-        this.db.data.reports = this.db.data.reports.filter(r => r.id !== id);
-        await this.db.write(); // Wait for write to complete
-
-        // Verify deletion
-        await this.db.read(); // Read fresh data
-        const stillExists = this.db.data.reports.some(r => r.id === id);
-
-        return !stillExists; // Return true only if report is actually gone
-    }
-
-    async clearAllReports(): Promise<boolean> {
-        await this.db.read(); // Ensure fresh data
-        const hadReports = this.db.data.reports.length > 0;
-
-        this.db.data.reports = [];
-        await this.db.write(); // Wait for write to complete
-
-        // Verify deletion
-        await this.db.read(); // Read fresh data
-        const isEmptyNow = this.db.data.reports.length === 0;
-
-        return hadReports && isEmptyNow; // Return true only if reports were deleted and verified
-    }
-
-    async markReportAsVisited(id: string): Promise<boolean> {
+    async getResearchData(researchId: string): Promise<ResearchData | null> {
         await this.db.read();
-        const report = this.db.data.reports.find(r => r.id === id);
-        if (!report) return false;
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return null;
 
-        report.isVisited = true;
-        await this.db.write();
-        return true;
+        // Get the report from reports collection
+        const report = this.db.data.reports.find(r => r.report_id === researchId);
+        if (!report) return null;
+
+        // Combine research data with report
+        return {
+            report_id: research.report_id,
+            initial_query: research.initial_query,
+            depth: research.depth,
+            breadth: research.breadth,
+            followUps_num: research.followUps_num,
+            followUps_QnA: research.followUps_QnA,
+            serpQueries: research.serpQueries,
+            information_crunching_agent: research.information_crunching_agent,
+            report: report
+        };
     }
 }
 
-export { ReportDB, type Report };
+export { ResearchDB, type Report };

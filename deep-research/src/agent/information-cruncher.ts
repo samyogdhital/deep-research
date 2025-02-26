@@ -13,12 +13,15 @@ export interface CrunchResult {
 
 export class InformationCruncher {
     private static readonly MAX_TOKENS = 50000;
+    private static readonly MAX_WORDS = 50000;
     private objective: string;
     private contents: Array<{ content: string; url: string; quote: string }> = [];
+    private totalWords = 0;
     private querySpecificContent = new Map<string, {
         content: string,
         sources: Array<{ url: string, quote: string }>,
-        tokens: number
+        tokens: number,
+        words: number
     }>();
 
     constructor(objective: string) {
@@ -29,7 +32,13 @@ export class InformationCruncher {
         return InformationCruncher.MAX_TOKENS;
     }
 
+    static getMaxWordLimit(): number {
+        return InformationCruncher.MAX_WORDS;
+    }
+
     async addContent(content: string, sourceUrl: string, sourceText: string): Promise<CrunchResult | null> {
+        const words = content.split(/\s+/).length;
+        this.totalWords += words;
         this.contents.push({ content, url: sourceUrl, quote: sourceText });
 
         if (this.shouldCrunch()) {
@@ -39,8 +48,7 @@ export class InformationCruncher {
     }
 
     private shouldCrunch(): boolean {
-        const totalTokens = encode(this.contents.map(c => c.content + c.quote).join(' ')).length;
-        return totalTokens > InformationCruncher.MAX_TOKENS / 2;
+        return this.totalWords >= InformationCruncher.MAX_WORDS;
     }
 
     async crunchContent(): Promise<CrunchResult> {
@@ -67,7 +75,7 @@ export class InformationCruncher {
         };
 
         const { response } = await generateObject({
-            system: `You are an Information Synthesis Agent. Combine and compress information while maintaining technical accuracy.`,
+            system: `You are an Information Synthesis Agent. Your task is to combine and compress information while maintaining technical accuracy and source traceability.`,
             prompt: `Synthesize this information related to: ${this.objective}
 
 Information to process:
@@ -78,11 +86,13 @@ Quote: ${c.quote}
 `).join('\n---\n')}
 
 Requirements:
-1. Combine overlapping information
-2. Maintain technical accuracy
-3. Keep important details and numbers
-4. Remove redundancy
-5. Preserve source traceability`,
+1. Combine overlapping information while preserving source attribution
+2. Maintain technical accuracy and precision
+3. Keep important details, numbers, and technical specifications
+4. Remove redundancy while ensuring no loss of unique insights
+5. Preserve source traceability for each piece of information
+6. Ensure the synthesized content is well-structured and logically organized
+7. Keep the most relevant and impactful information from each source`,
             model: process.env.CRUNCHING_MODEL as string,
             generationConfig: {
                 responseSchema: schema
@@ -90,7 +100,11 @@ Requirements:
         });
 
         const result = JSON.parse(response.text());
-        this.contents = []; // Reset after crunching
+
+        // Reset counters after crunching
+        this.contents = [];
+        this.totalWords = 0;
+
         return result;
     }
 
@@ -98,11 +112,19 @@ Requirements:
         return this.contents.length > 0 ? this.crunchContent() : null;
     }
 
-    async crunchQueryContent(queryId: string, objective: string): Promise<CrunchResult> {
+    async crunchQueryContent(queryId: string, objective: string): Promise<CrunchResult | null> {
         const content = this.querySpecificContent.get(queryId);
         if (!content) return null;
 
-        // Crunch information specific to this query's objective
-        // ...crunching logic...
+        // Use the same crunching logic but with query-specific content
+        this.objective = objective;
+        this.contents = content.sources.map(s => ({
+            content: content.content,
+            url: s.url,
+            quote: s.quote
+        }));
+        this.totalWords = content.words;
+
+        return this.crunchContent();
     }
 }

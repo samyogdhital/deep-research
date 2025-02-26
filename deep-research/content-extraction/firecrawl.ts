@@ -1,7 +1,6 @@
 import { OutputManager } from '../src/output-manager';
 import { FirecrawlResponse, ScrapedContent } from '../src/types';
 
-
 export class Firecrawl {
     private output: OutputManager;
 
@@ -10,57 +9,123 @@ export class Firecrawl {
     }
 
     private log(...args: any[]) {
+        console.log('[Firecrawl]', ...args);
         this.output.log(...args);
     }
 
     async scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
-        this.log(`Attempting to scrape ${urls.length} URLs`);
-        if (!urls.length) {
-            this.log('No URLs to scrape');
+        console.log(`[Firecrawl] Starting scraping of ${urls.length} URLs:`, urls);
+
+        // Validate base URL is configured
+        if (!process.env.FIRECRAWL_BASE_URL) {
+            console.error('[Firecrawl] Missing configuration:', {
+                hasBaseUrl: !!process.env.FIRECRAWL_BASE_URL,
+                baseUrl: process.env.FIRECRAWL_BASE_URL
+            });
             return [];
         }
 
-        const results = await Promise.all(urls.map(async url => {
+        // Process URLs sequentially to avoid overwhelming the service
+        const results: (ScrapedContent | null)[] = [];
+        for (const url of urls) {
             try {
+                console.log(`\n[Firecrawl] Processing URL: ${url}`);
+
+                // Construct request
+                const requestBody = {
+                    url,
+                    formats: ['markdown'],
+                    onlyMainContent: true,
+                    timeout: 30000,
+                    blockAds: true
+                };
+
+                console.log(`[Firecrawl] Making request to: ${process.env.FIRECRAWL_BASE_URL}/v1/scrape`);
+                console.log('[Firecrawl] Request body:', requestBody);
+
                 const response = await fetch(`${process.env.FIRECRAWL_BASE_URL}/v1/scrape`, {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${process.env.FIRECRAWL_KEY}`,
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
-                    body: JSON.stringify({
-                        url,
-                        formats: ['markdown'],
-                        onlyMainContent: true,
-                        blockAds: true,
-                        timeout: 30000
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
-                // Remove 404 handling - treat all non-OK responses as failures
+                console.log(`[Firecrawl] Response for ${url}:`, {
+                    status: response.status,
+                    ok: response.ok,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries())
+                });
+
                 if (!response.ok) {
-                    throw new Error(`Scraping failed with status ${response.status}`);
+                    const errorText = await response.text();
+                    console.error(`[Firecrawl] Failed to scrape ${url}:`, {
+                        status: response.status,
+                        error: errorText
+                    });
+                    results.push(null);
+                    continue;
                 }
 
-                const data: FirecrawlResponse = await response.json();
+                // Read and parse response
+                const text = await response.text();
+                console.log(`[Firecrawl] Response preview for ${url}:`,
+                    text.length > 200 ? text.substring(0, 200) + '...' : text
+                );
 
-                if (!data.success || !data.data?.markdown) {
-                    throw new Error(data.data?.metadata?.error || 'No content received');
+                let data: FirecrawlResponse;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error(`[Firecrawl] JSON parse error for ${url}:`, e);
+                    results.push(null);
+                    continue;
                 }
 
-                this.log(`✅ Successfully scraped ${url}`);
-                return {
+                // Validate response structure
+                if (!data.success) {
+                    console.error(`[Firecrawl] Unsuccessful response for ${url}:`, data);
+                    results.push(null);
+                    continue;
+                }
+
+                if (!data.data?.markdown) {
+                    console.error(`[Firecrawl] Missing markdown content for ${url}:`, data);
+                    results.push(null);
+                    continue;
+                }
+
+                const markdown = data.data.markdown.trim();
+                if (!markdown) {
+                    console.error(`[Firecrawl] Empty content for ${url}`);
+                    results.push(null);
+                    continue;
+                }
+
+                console.log(`[Firecrawl] Successfully scraped ${url} (${markdown.length} chars)`);
+                results.push({
                     url,
-                    markdown: data.data.markdown
-                };
+                    markdown
+                });
+
             } catch (error) {
-                this.log(`❌ Failed to scrape ${url}:`, error);
-                return null;
+                console.error(`[Firecrawl] Error processing ${url}:`, {
+                    error: error instanceof Error ? error.message : error,
+                    stack: error instanceof Error ? error.stack : undefined
+                });
+                results.push(null);
             }
-        }));
+        }
 
         const validResults = results.filter((r): r is ScrapedContent => r !== null);
-        this.log(`Successfully scraped ${validResults.length} out of ${urls.length} URLs`);
+        console.log(`\n[Firecrawl] Scraping summary:`, {
+            total: urls.length,
+            successful: validResults.length,
+            failed: urls.length - validResults.length,
+            successUrls: validResults.map(r => r.url)
+        });
 
         return validResults;
     }
