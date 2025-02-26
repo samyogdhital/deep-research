@@ -44,22 +44,15 @@ export const useResearchStore = create<ResearchStore>((set) => ({
         }))
 }));
 
+// Only set up socket listeners once in the browser
 if (typeof window !== 'undefined') {
     socket.on('ongoing-research-update', (research: OngoingResearch[]) => {
         useResearchStore.getState().setOngoingResearch(research);
     });
 
-    socket.on('research-completed', async ({ id, researchId }) => {
+    socket.on('research-completed', ({ researchId }) => {
         useResearchStore.getState().removeResearch(researchId);
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`);
-            if (response.ok) {
-                const reports = await response.json();
-                useResearchStore.getState().setReports(reports);
-            }
-        } catch (error) {
-            console.error('Failed to fetch reports:', error);
-        }
+        // Router refresh will be handled by the component
     });
 
     socket.on('connect', () => {

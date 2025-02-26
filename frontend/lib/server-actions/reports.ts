@@ -1,19 +1,22 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { deleteReport, clearAllReports } from '../db'
 
 export async function deleteReportAction(id: string) {
-    try {
-        await deleteReport(id)
-    } catch (error) {
-        throw new Error('Failed to delete report')
+    const success = await deleteReport(id)
+    if (success) {
+        revalidatePath('/')
+        revalidatePath('/report/[slug]', 'page')
     }
+    return success
 }
 
 export async function clearAllReportsAction() {
-    try {
-        await clearAllReports()
-    } catch (error) {
-        throw new Error('Failed to clear all reports')
+    const success = await clearAllReports()
+    if (success) {
+        revalidatePath('/')
+        revalidatePath('/report/[slug]', 'page')
     }
+    return success
 }

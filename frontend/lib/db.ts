@@ -58,12 +58,34 @@ export async function getReport(id: string) {
 }
 
 export async function getAllReports() {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
-        // cache: 'no-store',
-        next: { tags: ['reports'] }
-    });
-    if (!response.ok) throw new Error('Failed to fetch reports');
-    return response.json();
+    try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
+            next: { tags: ['reports'] }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                return [];
+            }
+            throw new Error('Failed to fetch reports');
+        }
+
+        const data = await response.json();
+
+        // Transform the data to match ReportsType
+        return data.map((report: any) => ({
+            id: report.report_id,
+            report_title: report.title,
+            report: report.sections.map((section: any) =>
+                `## ${section.sectionHeading}\n\n${section.content}`
+            ).join('\n\n'),
+            timestamp: report.timestamp || Date.now(),
+            isVisited: report.isVisited || false
+        }));
+    } catch (error) {
+        console.error('Get all reports error:', error);
+        return [];
+    }
 }
 
 export async function updateReportTitle(id: string, title: string) {

@@ -19,24 +19,38 @@ import { useRouter } from 'next/navigation';
 import { saveReport, getAllReports } from '@/lib/db'; // Add import
 import { useResearchStore } from '@/lib/research-store';
 
+interface Report {
+  title: string;
+  report_id: string;
+  sections: Array<{
+    rank: number;
+    sectionHeading: string;
+    content: string;
+  }>;
+  citedUrls: Array<{
+    rank: number;
+    url: string;
+    title: string;
+    oneValueablePoint: string;
+  }>;
+  isVisited?: boolean;
+}
+
 type ResearchState = {
   step: 'input' | 'follow-up' | 'processing' | 'complete';
   initialPrompt: string;
   depth: number;
   breadth: number;
-  followupQuestions: number;
+  followUps_num: number;
   generatedFollowUpQuestions: string[];
-  followUpAnswers: Record<string, string>;
+  followUps_QnA: Array<{
+    id: number;
+    question: string;
+    answer: string;
+  }>;
   logs: string[];
   showLogs: boolean;
-  report: string;
-  sources: Array<{
-    learning: string;
-    source: string;
-    quote: string;
-  }>;
-  showSources?: boolean;
-  sourcesLog: ResearchSourcesLog;
+  report: Report | null;
 };
 
 type SerpQueryResult = {
@@ -69,20 +83,14 @@ export default function Home() {
   const [state, setState] = useState<ResearchState>({
     step: 'input',
     initialPrompt: '',
-    depth: 1, // Default to 1
-    breadth: 1, // Default to 1
-    followupQuestions: 5, // Default to 5
+    depth: 1,
+    breadth: 1,
+    followUps_num: 5,
     generatedFollowUpQuestions: [],
-    followUpAnswers: {},
+    followUps_QnA: [],
     logs: [],
     showLogs: false,
-    report: '',
-    sources: [],
-    sourcesLog: {
-      // Add default value for sourcesLog
-      queries: [],
-      lastUpdated: new Date().toISOString(),
-    },
+    report: null,
   });
 
   const [status, setStatus] = useState<{
@@ -282,10 +290,7 @@ export default function Home() {
 
   const handleInitialSubmit = async () => {
     try {
-      setState((prev) => ({
-        ...prev,
-        step: 'processing',
-      }));
+      setState((prev) => ({ ...prev, step: 'processing' }));
 
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`,
@@ -294,7 +299,7 @@ export default function Home() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: state.initialPrompt,
-            followupQuestions: state.followupQuestions,
+            followupQuestions: state.followUps_num,
           }),
         }
       );
@@ -309,10 +314,16 @@ export default function Home() {
         throw new Error('Invalid response format');
       }
 
+      // Update state with generated questions
       setState((prev) => ({
         ...prev,
         step: 'follow-up',
         generatedFollowUpQuestions: data.questions,
+        followUps_QnA: data.questions.map((q, idx) => ({
+          id: idx + 1,
+          question: q,
+          answer: '',
+        })),
       }));
     } catch (error) {
       console.error('Error:', error);
@@ -320,7 +331,6 @@ export default function Home() {
         error instanceof Error ? error.message : 'Failed to generate questions'
       );
       setState((prev) => ({ ...prev, step: 'input' }));
-    } finally {
     }
   };
 
@@ -328,13 +338,19 @@ export default function Home() {
     try {
       const researchId = crypto.randomUUID();
 
-      // Just add to ongoing research without any checks
+      // Add to ongoing research with proper type
       useResearchStore.getState().addResearch({
         id: researchId,
         prompt: state.initialPrompt,
-        timestamp: Date.now(),
-        status: 'collecting', // Add initial status
+        startTime: Date.now(),
+        status: 'collecting',
       });
+
+      // Format follow-up answers to match backend schema
+      const followUpAnswers = state.followUps_QnA.reduce((acc, curr) => {
+        acc[curr.id] = curr.answer;
+        return acc;
+      }, {} as Record<number, string>);
 
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`,
@@ -344,11 +360,12 @@ export default function Home() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            researchId,
-            prompt: state.initialPrompt,
-            depth: state.depth || 1,
-            breadth: state.breadth || 1,
-            followUpAnswers: state.followUpAnswers,
+            report_id: researchId,
+            initial_query: state.initialPrompt,
+            depth: state.depth,
+            breadth: state.breadth,
+            followUps_num: state.followUps_num,
+            followUpAnswers,
           }),
         }
       );
@@ -359,16 +376,29 @@ export default function Home() {
       }
 
       const data = await response.json();
-      useResearchStore.getState().updateResearch(researchId, data.report_title);
-      router.push(`/report/${data.id}`);
+
+      // Update research store with report title
+      useResearchStore
+        .getState()
+        .updateResearch(researchId, data.report?.title);
+
+      // Redirect to report page using report_id
+      router.push(`/report/${data.report_id}`);
     } catch (error) {
-      setCurrentResearchId(null); // Clear on error
       console.error('Research error:', error);
       alert(error instanceof Error ? error.message : 'Research failed');
       setState((prev) => ({ ...prev, step: 'input' }));
-    } finally {
-      setIsProcessing(false);
     }
+  };
+
+  // Update answer handling
+  const handleAnswerChange = (questionId: number, answer: string) => {
+    setState((prev) => ({
+      ...prev,
+      followUps_QnA: prev.followUps_QnA.map((qa) =>
+        qa.id === questionId ? { ...qa, answer } : qa
+      ),
+    }));
   };
 
   const downloadReport = (format: 'pdf' | 'md') => {
@@ -416,6 +446,25 @@ export default function Home() {
   const shouldShowSources = useMemo(() => {
     return state.step === 'processing' || state.step === 'complete';
   }, [state.step]);
+
+  // Update input handlers to avoid null
+  const handleDepthChange = (value: string) => {
+    const numValue =
+      value === '' ? 1 : Math.max(1, Math.min(10, parseInt(value) || 1));
+    setState((prev) => ({ ...prev, depth: numValue }));
+  };
+
+  const handleBreadthChange = (value: string) => {
+    const numValue =
+      value === '' ? 1 : Math.max(1, Math.min(10, parseInt(value) || 1));
+    setState((prev) => ({ ...prev, breadth: numValue }));
+  };
+
+  const handleFollowUpsChange = (value: string) => {
+    const numValue =
+      value === '' ? 1 : Math.max(1, Math.min(10, parseInt(value) || 1));
+    setState((prev) => ({ ...prev, followUps_num: numValue }));
+  };
 
   return (
     <main className='container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col'>
@@ -468,24 +517,8 @@ export default function Home() {
                           min={1}
                           max={10}
                           className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                          value={state.depth === null ? '' : state.depth}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            if (inputValue === '') {
-                              setState((prev) => ({ ...prev, depth: null }));
-                            } else {
-                              const value = parseInt(inputValue);
-                              setState((prev) => ({
-                                ...prev,
-                                depth: Math.max(1, Math.min(10, value)),
-                              }));
-                            }
-                          }}
-                          onBlur={() => {
-                            if (state.depth === null) {
-                              setState((prev) => ({ ...prev, depth: 1 }));
-                            }
-                          }}
+                          value={state.depth}
+                          onChange={(e) => handleDepthChange(e.target.value)}
                         />
                       </div>
                     )}
@@ -510,24 +543,8 @@ export default function Home() {
                           min={1}
                           max={10}
                           className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                          value={state.breadth === null ? '' : state.breadth}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            if (inputValue === '') {
-                              setState((prev) => ({ ...prev, breadth: null }));
-                            } else {
-                              const value = parseInt(inputValue);
-                              setState((prev) => ({
-                                ...prev,
-                                breadth: Math.max(1, Math.min(10, value)),
-                              }));
-                            }
-                          }}
-                          onBlur={() => {
-                            if (state.breadth === null) {
-                              setState((prev) => ({ ...prev, breadth: 1 }));
-                            }
-                          }}
+                          value={state.breadth}
+                          onChange={(e) => handleBreadthChange(e.target.value)}
                         />
                       </div>
                     )}
@@ -540,7 +557,7 @@ export default function Home() {
                       onClick={handleFollowUpsClick}
                       className='followups-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
-                      Follow Ups: {state.followupQuestions || 5}
+                      Follow Ups: {state.followUps_num || 5}
                     </Button>
                     {showFollowUpsInput && (
                       <div className='followups-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
@@ -552,37 +569,10 @@ export default function Home() {
                           min={1}
                           max={10}
                           className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                          value={
-                            state.followupQuestions === null
-                              ? ''
-                              : state.followupQuestions
+                          value={state.followUps_num}
+                          onChange={(e) =>
+                            handleFollowUpsChange(e.target.value)
                           }
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            if (inputValue === '') {
-                              setState((prev) => ({
-                                ...prev,
-                                followupQuestions: null,
-                              }));
-                            } else {
-                              const value = parseInt(inputValue);
-                              setState((prev) => ({
-                                ...prev,
-                                followupQuestions: Math.max(
-                                  1,
-                                  Math.min(10, value)
-                                ),
-                              }));
-                            }
-                          }}
-                          onBlur={() => {
-                            if (state.followupQuestions === null) {
-                              setState((prev) => ({
-                                ...prev,
-                                followupQuestions: 1,
-                              }));
-                            }
-                          }}
                         />
                       </div>
                     )}
@@ -654,10 +644,10 @@ export default function Home() {
           <h2 className='text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6'>
             Follow-up Questions
           </h2>
-          {state.generatedFollowUpQuestions.map((question, idx) => (
-            <div key={idx} className='space-y-2'>
+          {state.followUps_QnA.map((qa) => (
+            <div key={qa.id} className='space-y-2'>
               <p className='font-bold text-gray-700 dark:text-gray-300'>
-                {question}
+                {qa.question}
               </p>
               <textarea
                 className='w-full p-4 border-2 rounded-lg text-base font-medium 
@@ -665,21 +655,15 @@ export default function Home() {
                   dark:bg-[#202121] dark:text-white dark:border-gray-700
                   dark:focus:border-[#007e81] transition-colors
                   resize-none min-h-[120px]'
-                onChange={(e) =>
-                  setState((prev) => ({
-                    ...prev,
-                    followUpAnswers: {
-                      ...prev.followUpAnswers,
-                      [question]: e.target.value,
-                    },
-                  }))
-                }
+                value={qa.answer}
+                onChange={(e) => handleAnswerChange(qa.id, e.target.value)}
               />
             </div>
           ))}
           <div className='flex justify-end mt-8'>
             <Button
               onClick={handleResearchStart}
+              disabled={state.followUps_QnA.some((qa) => !qa.answer.trim())}
               className='text-black bg-white hover:text-white hover:bg-black
                 dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white border border-black
                 transition-colors'
