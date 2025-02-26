@@ -134,6 +134,16 @@ class ResearchDB {
         return true;
     }
 
+    async updateReportTitle(id: string, title: string): Promise<boolean> {
+        await this.db.read();
+        const report = this.db.data.reports.find(r => r.report_id === id);
+        if (!report) return false;
+
+        report.title = title;
+        await this.db.write();
+        return true;
+    }
+
     async getAllReports(): Promise<Report[]> {
         await this.db.read();
         return this.db.data.reports;

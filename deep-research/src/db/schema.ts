@@ -51,6 +51,7 @@ export interface Report {
     sections: ReportSection[];
     citedUrls: CitedUrl[];
     isVisited?: boolean;
+    timestamp?: number;
 }
 
 export interface ResearchData {

@@ -176,7 +176,8 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
                 title: source.title,
                 oneValueablePoint: source.title
             })),
-            isVisited: false
+            isVisited: false,
+            timestamp: Date.now()
         });
 
         // Get complete research data from database
@@ -212,8 +213,95 @@ app.get('/api/reports', async (req: Request, res: Response) => {
     res.json(reports);
 });
 
+// Get a single report by ID
+app.get('/api/reports/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!id) {
+        res.status(400).json({ error: 'Report ID is required' });
+        return;
+    }
+
+    const db = await ResearchDB.getInstance();
+    const report = await db.getResearchData(id);
+
+    if (!report?.report) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+    }
+
+    res.json(report.report);
+});
+
+// Mark a report as visited
+app.patch('/api/reports/:id/visit', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!id) {
+        res.status(400).json({ error: 'Report ID is required' });
+        return;
+    }
+
+    const db = await ResearchDB.getInstance();
+    const success = await db.markReportAsVisited(id);
+
+    if (!success) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+    }
+
+    res.json({ success: true });
+});
+
+// Update report title
+app.patch('/api/reports/:id/title', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { title } = req.body;
+
+    if (!id || !title?.trim()) {
+        res.status(400).json({ error: 'Report ID and title are required' });
+        return;
+    }
+
+    const db = await ResearchDB.getInstance();
+    const success = await db.updateReportTitle(id, title);
+
+    if (!success) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+    }
+
+    res.json({ success: true });
+});
+
+// Delete a single report
+app.delete('/api/reports/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!id) {
+        res.status(400).json({ error: 'Report ID is required' });
+        return;
+    }
+
+    const db = await ResearchDB.getInstance();
+    const success = await db.deleteReport(id);
+
+    if (!success) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+    }
+
+    res.json({ success: true });
+});
+
+// Clear all reports
+app.delete('/api/reports', async (req: Request, res: Response) => {
+    const db = await ResearchDB.getInstance();
+    const success = await db.clearAllReports();
+    res.json({ success });
+});
+
 // `npm run debug -- 1001` to debug
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+// `
