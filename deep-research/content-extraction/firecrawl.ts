@@ -14,8 +14,6 @@ export class Firecrawl {
     }
 
     async scrapeWebsites(urls: string[]): Promise<ScrapedContent[]> {
-        console.log(`[Firecrawl] Starting scraping of ${urls.length} URLs:`, urls);
-
         // Validate base URL is configured
         if (!process.env.FIRECRAWL_BASE_URL) {
             console.error('[Firecrawl] Missing configuration:', {

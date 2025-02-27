@@ -40,6 +40,20 @@ class ResearchDB {
 
             ResearchDB.instance = new ResearchDB();
             await ResearchDB.instance.db.read();
+
+            // Ensure data is initialized
+            if (!ResearchDB.instance.db.data) {
+                ResearchDB.instance.db.data = defaultData;
+                await ResearchDB.instance.db.write();
+            }
+
+            // Ensure arrays exist
+            if (!ResearchDB.instance.db.data.reports) {
+                ResearchDB.instance.db.data.reports = [];
+            }
+            if (!ResearchDB.instance.db.data.researches) {
+                ResearchDB.instance.db.data.researches = [];
+            }
         }
         return ResearchDB.instance;
     }
@@ -150,10 +164,35 @@ class ResearchDB {
     }
 
     async saveReport(report: Report): Promise<string> {
-        await this.db.read();
-        this.db.data.reports.push(report);
-        await this.db.write();
-        return report.report_id;
+        try {
+            await this.db.read();
+
+            // Ensure data and arrays are initialized
+            if (!this.db.data) {
+                this.db.data = defaultData;
+            }
+            if (!this.db.data.reports) {
+                this.db.data.reports = [];
+            }
+            if (!this.db.data.researches) {
+                this.db.data.researches = [];
+            }
+
+            // Save to reports collection
+            this.db.data.reports.push(report);
+
+            // Update the research object's report
+            const research = this.db.data.researches.find(r => r.report_id === report.report_id);
+            if (research) {
+                research.report = report;
+            }
+
+            await this.db.write();
+            return report.report_id;
+        } catch (error) {
+            console.error('Error in saveReport:', error);
+            throw error;
+        }
     }
 
     async addCrunchedInformation(researchId: string, crunchedInfo: InformationCrunchingResult): Promise<boolean> {
@@ -170,11 +209,10 @@ class ResearchDB {
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         if (!research) return null;
 
-        // Get the report from reports collection
+        // Get the report from reports collection if it exists
         const report = this.db.data.reports.find(r => r.report_id === researchId);
-        if (!report) return null;
 
-        // Combine research data with report
+        // Return the research data with either the found report or the research's own report
         return {
             report_id: research.report_id,
             initial_query: research.initial_query,
@@ -184,7 +222,7 @@ class ResearchDB {
             followUps_QnA: research.followUps_QnA,
             serpQueries: research.serpQueries,
             information_crunching_agent: research.information_crunching_agent,
-            report: report
+            report: report || research.report  // Use the report from research if not found in reports
         };
     }
 }

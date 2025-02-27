@@ -9,7 +9,7 @@ import { generateFollowUps } from './src/agent/prompt-analyzer';
 import { ReportWriter } from './src/agent/report-writer';
 import { WebSocketManager, ResearchState } from './src/websocket';
 import { config as envConfig } from 'dotenv';
-import { ResearchProgress, DeepResearchOptions, WebsiteResult, CrunchedInfo } from './src/types';
+import { ResearchProgress, DeepResearchOptions, WebsiteResult, CrunchedInfo, QueryData } from './src/types';
 
 envConfig();
 const app = express();
@@ -119,7 +119,7 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
                 output.updateProgress(progress);
                 wsManager.updateResearchPhase('gathering');
             },
-            onSourceUpdate: (queryData) => {
+            onSourceUpdate: (queryData: QueryData) => {
                 wsManager.updateSourceProgress(queryData);
             },
             onWebsiteAnalysis: (queryRank: number, website: WebsiteResult) => {
@@ -145,8 +145,18 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
             visitedUrls: visitedUrls
         });
 
+        // Save the report to database
+        await db.saveReport({
+            report_id,
+            title: report.title,
+            sections: report.sections,
+            citedUrls: report.citedUrls,
+            isVisited: false,
+            timestamp: Date.now()
+        });
+
         // Complete research
-        wsManager.handleResearchComplete(report_id, report.report_title);
+        wsManager.handleResearchComplete(report_id, report.title);
         res.json(await db.getResearchData(report_id));
 
     } catch (error: unknown) {

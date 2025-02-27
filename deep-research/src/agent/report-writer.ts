@@ -21,9 +21,18 @@ export interface TrackedLearning {
 }
 
 export interface ReportResult {
-    report_title: string;
-    report: string;
-    sources: Array<{ id: number; url: string; title: string }>;
+    title: string;
+    sections: Array<{
+        rank: number;
+        sectionHeading: string;
+        content: string;
+    }>;
+    citedUrls: Array<{
+        rank: number;
+        url: string;
+        title: string;
+        oneValueablePoint: string;
+    }>;
 }
 
 export class ReportWriter {
@@ -53,53 +62,78 @@ export class ReportWriter {
         this.log("Writing Final Report - 🥅🥅🥅🥅");
 
         const processedLearnings = await this.processLearnings(learnings);
+        // This schema is absolutely necessary for pushing data to database for the report section.
+        // Every field is required to ensure Gemini doesn't miss any fields in the response.
+        // The response must exactly match the database Report schema structure.
         const reportSchema: Schema = {
             type: SchemaType.OBJECT,
             properties: {
-                report_title: {
+                title: {
                     type: SchemaType.STRING,
-                    description: "Short 3-5 word summary about what this report is all about."
+                    description: "Title of the report"
                 },
-                report: {
-                    type: SchemaType.STRING,
-                    description: "The complete technical report in markdown format with citations"
-                },
-                sources: {
+                sections: {
                     type: SchemaType.ARRAY,
+                    description: "Array of sections in the report, properly formatted in markdown",
                     items: {
                         type: SchemaType.OBJECT,
                         properties: {
-                            id: {
+                            rank: {
                                 type: SchemaType.NUMBER,
-                                description: "Sequential number for the source"
+                                description: "Sequential number indicating the order of this section"
+                            },
+                            sectionHeading: {
+                                type: SchemaType.STRING,
+                                description: "Section heading in markdown format (H1/H2/H3) with appropriate markdown tags"
+                            },
+                            content: {
+                                type: SchemaType.STRING,
+                                description: "Content in full markdown format including lists and citations in [rank](citedUrls[rank].url) format"
+                            }
+                        },
+                        required: ["rank", "sectionHeading", "content"]
+                    }
+                },
+                citedUrls: {
+                    type: SchemaType.ARRAY,
+                    description: "Array of cited URLs used in the report",
+                    items: {
+                        type: SchemaType.OBJECT,
+                        properties: {
+                            rank: {
+                                type: SchemaType.NUMBER,
+                                description: "Sequential rank number, most cited URL should be rank 1"
                             },
                             url: {
                                 type: SchemaType.STRING,
-                                description: "Source URL"
+                                description: "URL of the source"
                             },
                             title: {
                                 type: SchemaType.STRING,
-                                description: "Title or description of the source"
+                                description: "Title of the website"
+                            },
+                            oneValueablePoint: {
+                                type: SchemaType.STRING,
+                                description: "One valuable fact or figure from this source that meets our objective"
                             }
                         },
-                        required: ["id", "url", "title"]
+                        required: ["rank", "url", "title", "oneValueablePoint"]
                     }
                 }
             },
-            required: ['report_title', "report", "sources"]
+            required: ["title", "sections", "citedUrls"]
         };
 
         const { response } = await generateObject({
-            system: `You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report in markdown format. Follow these strict rules:
+            system: `You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:
       - Write in clear markdown format
-      - Every statement must end with a citation in format [n](url) where n is the sequential number
-      - Citations must be numbered sequentially [1], [2], etc.
-      - Each citation must link to one specific source URL
-      - Ensure each source is used at least once
+      - Every section must have proper markdown headers (# for H1, ## for H2, ### for H3)
+      - Every statement must have a citation linking to citedUrls using [rank](url) format
+      - Citations must be numbered by their rank in citedUrls array
+      - Each cited URL must have one valuable point extracted from it
       - Write in highly technical and detailed manner
       - Include all facts, figures, and technical specifications
-      - Create a References section at the end with numbered list of all sources
-      - Each reference must have a title/description and URL`,
+      - Organize content into proper sections with appropriate ranks`,
             prompt: `Write a comprehensive technical report using these research findings:
 
 Research Context: ${prompt}
@@ -125,11 +159,7 @@ Format Requirements:
         });
 
         const result = JSON.parse(response.text());
-        return {
-            report_title: result.report_title,
-            report: result.report,
-            sources: result.sources
-        };
+        return result;
     }
 
     private async processLearnings(learnings: TrackedLearning[]): Promise<TrackedLearning[]> {

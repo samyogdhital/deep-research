@@ -45,9 +45,7 @@ interface EnhancedSearchResult extends SearxResult, ScrapedContent {
   description?: string;
 }
 
-const TOKEN_LIMIT_PER_QUERY = 50000; // 50K tokens per query for information crunching
-const MAX_RESULTS_PER_QUERY = 5; // Maximum number of results to process per query for MVP
-const WORDS_TO_TOKENS_RATIO = 0.75; // Approximate ratio to convert words to tokens
+const MAX_RESULTS_PER_QUERY = 1; // Maximum number of results to process per query for MVP
 const MAX_WORDS = 50000; // Maximum words before crunching
 
 export async function deepResearch({

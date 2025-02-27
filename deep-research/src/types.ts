@@ -116,3 +116,11 @@ export interface CrunchedInfo {
         content: string[];
     }>;
 }
+
+export interface QueryData {
+    query: string;
+    url: string;
+    content: string;
+    objective: string;
+    query_rank: number;
+}

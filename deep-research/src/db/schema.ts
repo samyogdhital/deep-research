@@ -34,8 +34,8 @@ export interface InformationCrunchingResult {
 
 export interface ReportSection {
     rank: number;
-    sectionHeading: string;
-    content: string;
+    sectionHeading: string;  // Will contain markdown format H1/H2/H3
+    content: string;  // Will contain full markdown format content
 }
 
 export interface CitedUrl {
@@ -46,16 +46,16 @@ export interface CitedUrl {
 }
 
 export interface Report {
-    title: string;
     report_id: string;
+    title: string;
     sections: ReportSection[];
     citedUrls: CitedUrl[];
-    isVisited?: boolean;
-    timestamp?: number;
+    isVisited: boolean;
+    timestamp: number;
 }
 
 export interface ResearchData {
-    report_id: string; // Unique identifier for the entire research
+    report_id: string;
     initial_query: string;
     depth: number;
     breadth: number;
@@ -65,5 +65,5 @@ export interface ResearchData {
     information_crunching_agent: {
         serpQueries: InformationCrunchingResult[];
     };
-    report: Report;
+    report?: Report; // Make this optional since it might not exist initially
 }
