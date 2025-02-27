@@ -259,3 +259,6 @@ Since this is our minimal viable product implementation, We don't want to make i
 - There is a clear defined schema in `response-schema.ts` file as well as detailed comment on top. Whatever we do the data need to be save progressively. If something need to be inside that db and is absolutely required by db schema, we right there and then save that on db on our code `deep-research.ts` file or `server.ts` file. Progressive db update. Every step is saved on db following the fixed db schema which we cannot miss at all.
 - And final requirement is whatever update we do on the backend side, we will send that update right there and then to the frontend client so that they can react on that on frontend through websocket connection.
 Make sure these rules are not broken at all following our MVP philosophy. Let's not make this codebase overly complex. If there is some redundant logic that does not support these absolute requirement, we remove that from codebase ok?
+
+### Websocket logic
+![Websocket logic](websocket-logic.png)
