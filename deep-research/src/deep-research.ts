@@ -138,6 +138,8 @@ export async function deepResearch({
         failedWebsites: scrapeFails
       };
       await db.addSerpQuery(researchId, serpQuery);
+      // Save failed URLs immediately
+      await db.updateSerpQueryResults(researchId, serpQuery.query_rank, [], scrapeFails);
 
       // Process successful scrapes
       const cruncher = new InformationCruncher(query.objective);
@@ -251,6 +253,9 @@ export async function deepResearch({
         } catch (error) {
           console.error(`Failed to analyze ${content.url}:`, error);
           failedUrls.push(content.url);
+          // Save failed URL immediately
+          serpQuery.failedWebsites.push(content.url);
+          await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
           continue;
         }
       }
