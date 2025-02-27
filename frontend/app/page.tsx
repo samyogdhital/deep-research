@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { saveReport, getAllReports } from '@/lib/db'; // Add import
 import { useResearchStore } from '@/lib/research-store';
 import type { SerpQueryResult, ResearchSourcesLog } from '@/types/research';
+import { cn } from '@/lib/utils';
 
 interface Report {
   title: string;
@@ -61,11 +62,7 @@ type ResearchState = {
   sourcesLog?: ResearchSourcesLog;
 };
 
-type ResearchPhase =
-  | 'idle'
-  | 'collecting-sources'
-  | 'analyzing'
-  | 'generating-report';
+type ResearchPhase = 'input' | 'follow-up' | 'processing' | 'complete';
 
 export default function Home() {
   const router = useRouter();
@@ -82,36 +79,118 @@ export default function Home() {
     report: null,
   });
 
-  const [status, setStatus] = useState<{
-    loading: boolean;
-    message: string;
-    complete: boolean;
-  }>({
-    loading: false,
-    message: '',
-    complete: false,
-  });
-
-  const [isProcessing, setIsProcessing] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [latestLog, setLatestLog] = useState<string>('');
-
-  // Add state for input visibility
-  const [showDepthInput, setShowDepthInput] = useState(false);
-  const [showBreadthInput, setShowBreadthInput] = useState(false);
-  const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
-
-  // Add new state for research phase
-  const [researchPhase, setResearchPhase] = useState<ResearchPhase>('idle');
-
   const [currentResearchId, setCurrentResearchId] = useState<string | null>(
     null
   );
 
+  // Remove unused state
+  const [showDepthInput, setShowDepthInput] = useState(false);
+  const [showBreadthInput, setShowBreadthInput] = useState(false);
+  const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
+
+  // Add ref for textarea
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [accordionValue, setAccordionValue] = useState<string | undefined>(
+    undefined
+  );
+
+  // Handle accordion auto-expand/collapse sequence
+  useEffect(() => {
+    if (state.step === 'processing') {
+      // Initially collapsed
+      setAccordionValue(undefined);
+
+      // Expand after 200ms
+      const expandTimeout = setTimeout(() => {
+        setAccordionValue('logs');
+      }, 200);
+
+      // Collapse when follow-up questions are ready
+      if (state.generatedFollowUpQuestions.length > 0) {
+        setAccordionValue(undefined);
+      }
+
+      return () => clearTimeout(expandTimeout);
+    }
+  }, [state.step, state.generatedFollowUpQuestions.length]);
+
+  useEffect(() => {
+    const newSocket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
+      withCredentials: true,
+      transports: ['websocket'],
+    });
+
+    newSocket.on('log', (message: string) => {
+      setState((prev) => ({
+        ...prev,
+        logs: [...prev.logs, message],
+      }));
+
+      if (message.includes('Research terminated by user')) {
+        setState((prev) => ({ ...prev, step: 'input' }));
+      }
+    });
+
+    newSocket.on('sources-update', (sourcesLog: ResearchSourcesLog) => {
+      setState((prev) => ({
+        ...prev,
+        sourcesLog,
+      }));
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      console.log('Cleaning up socket connection');
+      newSocket.off('research-completed');
+      newSocket.close();
+    };
+  }, [router, currentResearchId]);
+
+  // Modified auto-resize handler
+  const handleTextareaResize = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    if (state.initialPrompt) {
+      textarea.style.height = 'auto';
+      const newHeight = Math.max(
+        150,
+        Math.min(textarea.scrollHeight + 16, window.innerHeight * 0.5)
+      );
+      textarea.style.height = `${newHeight}px`;
+    } else {
+      textarea.style.height = '150px';
+    }
+  }, [state.initialPrompt]);
+
+  // Update input handlers
+  const handleDepthChange = (value: string) => {
+    const depth = parseInt(value);
+    if (!isNaN(depth) && depth >= 1 && depth <= 10) {
+      setState((prev) => ({ ...prev, depth }));
+    }
+  };
+
+  const handleBreadthChange = (value: string) => {
+    const breadth = parseInt(value);
+    if (!isNaN(breadth) && breadth >= 1 && breadth <= 10) {
+      setState((prev) => ({ ...prev, breadth }));
+    }
+  };
+
+  const handleFollowUpsChange = (value: string) => {
+    const followUps = parseInt(value);
+    if (!isNaN(followUps) && followUps >= 1 && followUps <= 10) {
+      setState((prev) => ({ ...prev, followUps_num: followUps }));
+    }
+  };
+
   const stopResearch = useCallback(() => {
     if (socket) {
       socket.emit('stop-research');
-      setIsProcessing(false);
       setState((prev) => ({ ...prev, step: 'input' }));
     }
   }, [socket]);
@@ -143,55 +222,6 @@ export default function Home() {
       }
     });
 
-    newSocket.on('log', (message: string) => {
-      setState((prev) => ({
-        ...prev,
-        logs: [...prev.logs, message],
-      }));
-      setLatestLog(message);
-
-      if (message.includes('Generating follow-up questions')) {
-        setStatus({
-          loading: true,
-          message: 'Generating follow-up questions...',
-          complete: false,
-        });
-      } else if (message.includes('Questions generated')) {
-        setStatus({
-          loading: false,
-          message: 'Questions generated successfully',
-          complete: true,
-        });
-      } else if (message.includes('Starting research')) {
-        setStatus({
-          loading: true,
-          message: 'Processing research...',
-          complete: false,
-        });
-      } else if (message.includes('Generating final report')) {
-        setStatus({
-          loading: true,
-          message: 'Generating final report...',
-          complete: false,
-        });
-      } else if (message.includes('Deep Research complete.')) {
-        // Add this condition
-        setStatus({
-          loading: false,
-          message: 'Research completed successfully',
-          complete: true,
-        });
-      } else if (message.includes('Research terminated by user')) {
-        setStatus({
-          loading: false,
-          message: 'Research stopped',
-          complete: false,
-        });
-        setIsProcessing(false);
-        setState((prev) => ({ ...prev, step: 'input' }));
-      }
-    });
-
     newSocket.on('progress', (data: any) => {
       console.log('Received progress:', data);
       setState((prev) => ({
@@ -208,16 +238,12 @@ export default function Home() {
       }));
     });
 
-    newSocket.on('sources-update', (sourcesLog: ResearchSourcesLog) => {
+    // Update the research phase handler
+    newSocket.on('research-phase', (phase: ResearchPhase) => {
       setState((prev) => ({
         ...prev,
-        sourcesLog,
+        step: phase,
       }));
-    });
-
-    // Add new event listener for research phase updates
-    newSocket.on('research-phase', (phase: ResearchPhase) => {
-      setResearchPhase(phase);
     });
 
     // Request initial sources data
@@ -229,8 +255,6 @@ export default function Home() {
       newSocket.close();
     };
   }, [router, currentResearchId]); // Add router and currentResearchId to dependencies
-
-  // Remove the separate useEffect for research-completed
 
   // Add click outside handler
   useEffect(() => {
@@ -293,12 +317,6 @@ export default function Home() {
         logs: [...prev.logs, 'Generating follow-up questions...'],
       }));
 
-      setStatus({
-        loading: true,
-        message: 'Generating follow-up questions...',
-        complete: false,
-      });
-
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`,
         {
@@ -336,15 +354,12 @@ export default function Home() {
         ...prev,
         step: 'follow-up',
         generatedFollowUpQuestions: questions,
-        followUps_QnA: followUps, // This will always be an array
+        followUps_QnA: followUps,
         logs: [...prev.logs, 'Follow-up questions generated successfully'],
       }));
 
-      setStatus({
-        loading: false,
-        message: 'Questions generated successfully',
-        complete: true,
-      });
+      // Collapse accordion when questions appear
+      setAccordionValue(undefined);
     } catch (error) {
       console.error('Error:', error);
 
@@ -363,15 +378,6 @@ export default function Home() {
           }`,
         ],
       }));
-
-      setStatus({
-        loading: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to generate questions',
-        complete: false,
-      });
     }
   };
 
@@ -391,12 +397,6 @@ export default function Home() {
         step: 'processing',
         logs: [...prev.logs, 'Starting deep research...'],
       }));
-
-      setStatus({
-        loading: true,
-        message: 'Starting deep research...',
-        complete: false,
-      });
 
       // Add to ongoing research with proper type
       useResearchStore.getState().addResearch({
@@ -476,12 +476,6 @@ export default function Home() {
           }`,
         ],
       }));
-
-      setStatus({
-        loading: false,
-        message: error instanceof Error ? error.message : 'Research failed',
-        complete: false,
-      });
     }
   };
 
@@ -515,57 +509,10 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  // Add ref for textarea
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Modified auto-resize handler
-  const handleTextareaResize = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    // Set initial height to scrollHeight only if there's content
-    if (state.initialPrompt) {
-      textarea.style.height = 'auto';
-      const newHeight = Math.max(
-        150, // smaller min-height
-        Math.min(
-          textarea.scrollHeight + 16,
-          window.innerHeight * 0.5 // max 50% of viewport height
-        )
-      );
-      textarea.style.height = `${newHeight}px`;
-    } else {
-      // Reset to min-height when empty
-      textarea.style.height = '150px';
-    }
-  }, [state.initialPrompt]);
-
   // Helper function to determine if sources should be shown
   const shouldShowSources = useMemo(() => {
     return state.step === 'processing' || state.step === 'complete';
   }, [state.step]);
-
-  // Update input handlers to avoid null
-  const handleDepthChange = (value: string) => {
-    const depth = parseInt(value);
-    if (!isNaN(depth) && depth >= 1 && depth <= 10) {
-      setState((prev) => ({ ...prev, depth }));
-    }
-  };
-
-  const handleBreadthChange = (value: string) => {
-    const breadth = parseInt(value);
-    if (!isNaN(breadth) && breadth >= 1 && breadth <= 10) {
-      setState((prev) => ({ ...prev, breadth }));
-    }
-  };
-
-  const handleFollowUpsChange = (value: string) => {
-    const followUps = parseInt(value);
-    if (!isNaN(followUps) && followUps >= 1 && followUps <= 10) {
-      setState((prev) => ({ ...prev, followUps_num: followUps }));
-    }
-  };
 
   return (
     <main className='container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col'>
@@ -702,74 +649,152 @@ export default function Home() {
 
       {/* Updated Log Section */}
       {state.step !== 'input' && (
-        <div className='mb-8'>
+        <div className='space-y-4 mx-auto mb-6 w-full max-w-3xl'>
           <Accordion
             type='single'
-            className='w-full'
             collapsible
-            defaultValue='item-1'
+            value={accordionValue}
+            onValueChange={setAccordionValue}
+            className='w-full'
           >
-            <AccordionItem
-              value='item-1'
-              className='border-2 dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200'
-            >
-              <AccordionTrigger className='px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline'>
-                <div className='flex items-center gap-3 w-full overflow-hidden'>
-                  {status.loading ? (
-                    <Spinner className='w-5 h-5 flex-shrink-0 text-[#007e81] dark:text-[#00676a]' />
-                  ) : status.complete ? (
-                    <Check className='w-5 h-5 flex-shrink-0 text-green-500' />
-                  ) : (
-                    <div className='w-5 h-5 flex-shrink-0' />
-                  )}
-                  <div className='flex flex-col gap-1 text-left flex-1 min-w-0'>
-                    <span className='truncate text-gray-900 dark:text-gray-100 font-medium'>
-                      {status.message || 'Research Progress'}
-                    </span>
-                    <span className='text-sm text-gray-500 dark:text-gray-400 truncate'>
-                      {latestLog || 'Ready to begin research'}
-                    </span>
-                  </div>
+            <AccordionItem value='logs' className='border-none'>
+              <AccordionTrigger
+                className={cn(
+                  'flex w-full items-center justify-between px-6 py-3',
+                  'text-left text-xs transition-all',
+                  'bg-white dark:bg-gray-800',
+                  '[&[data-state=open]>div>svg]:rotate-180',
+                  'border border-gray-100 dark:border-gray-700 rounded-lg',
+                  '[&[data-state=open]]:rounded-b-none',
+                  'hover:no-underline'
+                )}
+              >
+                <div className='flex w-full items-center justify-between pr-6'>
+                  <span className='text-sm font-bold text-gray-800 dark:text-gray-200'>
+                    Deep Research
+                  </span>
+                  <span className='text-xs text-gray-500 dark:text-gray-400'>
+                    12 sources
+                  </span>
                 </div>
               </AccordionTrigger>
-              <AccordionContent className='border-t dark:border-gray-700'>
-                <div className='bg-gray-50 dark:bg-[#161717] p-4 rounded-b-lg space-y-2 max-h-[400px] overflow-y-auto'>
-                  {state.logs.map((log: string, idx: number) => {
-                    const isError = log.toLowerCase().includes('error');
-                    const isSuccess =
-                      log.toLowerCase().includes('success') ||
-                      log.toLowerCase().includes('complete');
-                    const isWarning = log.toLowerCase().includes('warning');
+              <AccordionContent className='pt-6 w-full bg-gray-50 dark:bg-gray-800/50 border border-t-0 border-gray-100 dark:border-gray-700 rounded-b-lg'>
+                {/* Roadmap with Checkpoints */}
+                <div className='relative pl-8'>
+                  {/* Vertical Timeline - Only between icons */}
+                  <div className='absolute left-[1.1875rem] top-[1.25rem] bottom-[1.25rem] w-[1px] bg-gray-200 dark:bg-gray-700 -translate-x-1/2' />
 
-                    return (
-                      <div
-                        key={idx}
-                        className={`py-2.5 px-4 rounded-lg flex items-start gap-3 transition-colors duration-200 ${
-                          isError
-                            ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
-                            : isSuccess
-                            ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-                            : isWarning
-                            ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200'
-                            : 'bg-white dark:bg-gray-800/50 text-gray-700 dark:text-gray-200'
-                        }`}
-                      >
-                        {isError ? (
-                          <span className='text-red-500'>⚠️</span>
-                        ) : isSuccess ? (
-                          <span className='text-green-500'>✓</span>
-                        ) : isWarning ? (
-                          <span className='text-yellow-500'>⚠</span>
-                        ) : (
-                          <span className='text-gray-400'>•</span>
-                        )}
-                        <span className='flex-1'>{log}</span>
-                        <span className='text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap'>
-                          {new Date().toLocaleTimeString()}
+                  {/* Follow-up Questions Checkpoint */}
+                  <div className='space-y-4'>
+                    <Accordion type='single' collapsible className='w-full'>
+                      <AccordionItem value='followup' className='border-none'>
+                        <AccordionTrigger
+                          className={cn(
+                            'flex w-full items-center py-2 pr-6',
+                            'text-left text-xs transition-all',
+                            '[&[data-state=open]>div>svg]:rotate-180',
+                            'hover:no-underline group'
+                          )}
+                        >
+                          <div className='flex items-center gap-3 w-full'>
+                            <div
+                              className={cn(
+                                'w-5 h-5 rounded-full flex items-center justify-center relative z-10',
+                                state.generatedFollowUpQuestions.length > 0
+                                  ? 'bg-green-100 dark:bg-green-900/20'
+                                  : 'bg-blue-100 dark:bg-blue-900/20'
+                              )}
+                            >
+                              <div
+                                className={cn(
+                                  'w-2.5 h-2.5 rounded-full',
+                                  state.generatedFollowUpQuestions.length > 0
+                                    ? 'bg-green-500 dark:bg-green-400'
+                                    : 'bg-blue-400 dark:bg-blue-500 animate-pulse'
+                                )}
+                              />
+                            </div>
+                            <span className='text-xs text-gray-700 dark:text-gray-200 flex-grow'>
+                              {state.generatedFollowUpQuestions.length > 0
+                                ? 'Generated Follow-up Questions'
+                                : 'Generating Follow-up Questions'}
+                            </span>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          {/* Follow-up Question Logs - No icons, just text */}
+                          <div className='pl-9 space-y-2 mt-2'>
+                            <div className='text-[0.75rem] text-gray-600 dark:text-gray-300 pl-4 border-l-2 border-gray-200 dark:border-gray-700'>
+                              <div className='py-1.5'>
+                                Generating follow-up questions
+                              </div>
+                              {state.generatedFollowUpQuestions.length > 0 && (
+                                <div className='py-1.5'>
+                                  Generated{' '}
+                                  {state.generatedFollowUpQuestions.length}{' '}
+                                  follow-up questions
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+
+                    {/* Search Phase - Disabled until previous step completes */}
+                    <div
+                      className={`w-full ${
+                        state.generatedFollowUpQuestions.length === 0
+                          ? 'opacity-50'
+                          : ''
+                      }`}
+                    >
+                      <div className='flex items-center gap-3 py-2 pr-6'>
+                        <div className='w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center relative z-10'>
+                          <div className='w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500' />
+                        </div>
+                        <span className='text-xs text-gray-700 dark:text-gray-200'>
+                          Searching for information
                         </span>
                       </div>
-                    );
-                  })}
+                    </div>
+
+                    {/* Analysis Phase - Disabled until previous step completes */}
+                    <div
+                      className={`w-full ${
+                        state.generatedFollowUpQuestions.length === 0
+                          ? 'opacity-50'
+                          : ''
+                      }`}
+                    >
+                      <div className='flex items-center gap-3 py-2 pr-6'>
+                        <div className='w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center relative z-10'>
+                          <div className='w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500' />
+                        </div>
+                        <span className='text-xs text-gray-700 dark:text-gray-200'>
+                          Analyzing findings
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Report Generation - Disabled until previous step completes */}
+                    <div
+                      className={`w-full ${
+                        state.generatedFollowUpQuestions.length === 0
+                          ? 'opacity-50'
+                          : ''
+                      }`}
+                    >
+                      <div className='flex items-center gap-3 py-2 pr-6'>
+                        <div className='w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center relative z-10'>
+                          <div className='w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500' />
+                        </div>
+                        <span className='text-xs text-gray-700 dark:text-gray-200'>
+                          Generating final report
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -777,14 +802,14 @@ export default function Home() {
         </div>
       )}
 
-      {/* Updated Follow-up section */}
+      {/* Updated Follow-up section with more margin and smaller text */}
       {state.step === 'follow-up' && (
-        <div className='space-y-8 max-w-3xl mx-auto'>
+        <div className='space-y-8 mx-auto w-full max-w-3xl mt-12'>
           <div className='text-center space-y-2'>
-            <h2 className='text-3xl font-bold text-gray-800 dark:text-gray-100'>
+            <h2 className='text-2xl font-bold text-gray-800 dark:text-gray-100'>
               Follow-up Questions
             </h2>
-            <p className='text-gray-600 dark:text-gray-400'>
+            <p className='text-sm text-gray-600 dark:text-gray-400'>
               Help us understand your research needs better by answering these
               questions
             </p>
@@ -794,11 +819,11 @@ export default function Home() {
             state.followUps_QnA.map((qa, idx) => (
               <div
                 key={qa.id}
-                className='bg-white dark:bg-[#202121] rounded-xl p-6 shadow-sm border-2 border-gray-100 dark:border-gray-800 space-y-4 transition-all duration-200 hover:shadow-md'
+                className='bg-white dark:bg-[#202121] rounded-xl p-6 shadow-sm border-2 border-gray-100 dark:border-gray-800 space-y-4 transition-all duration-200 hover:shadow-md w-full'
               >
                 <div className='flex items-start gap-4'>
-                  <div className='flex-shrink-0 w-8 h-full'>
-                    <span className='sticky top-0 flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-medium'>
+                  <div className='flex-shrink-0 w-8 h-8 sticky top-0'>
+                    <span className='flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-medium'>
                       {idx + 1}
                     </span>
                   </div>
@@ -813,7 +838,7 @@ export default function Home() {
                           dark:bg-[#161717] dark:text-white dark:border-gray-700
                           dark:focus:ring-[#007e81] dark:focus:ring-offset-[#202121]
                           transition-all duration-200
-                          resize-none overflow-hidden min-h-[120px] max-h-[400px]'
+                          resize-none overflow-y-auto min-h-[120px] max-h-[400px]'
                         value={qa.answer}
                         onChange={(e) => {
                           handleAnswerChange(qa.id, e.target.value);
@@ -916,11 +941,6 @@ export default function Home() {
 
       {state.step === 'processing' && (
         <div className='space-y-6'>
-          {/* Logs accordion (collapsed by default) */}
-          <Accordion type='single' collapsible>
-            {/* ...existing logs accordion... */}
-          </Accordion>
-
           {/* Sources accordion (expanded by default) */}
           {shouldShowSources && (
             <Accordion type='single' collapsible defaultValue='sources'>
@@ -1022,51 +1042,6 @@ export default function Home() {
               </AccordionItem>
             </Accordion>
           )}
-        </div>
-      )}
-
-      {/* Status notifications */}
-      {status.loading && (
-        <div className='fixed top-4 right-4 z-50 flex flex-col gap-2'>
-          <div
-            className={`
-            bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4
-            border border-gray-200 dark:border-gray-700
-            animate-fade-in transition-all duration-300
-            flex items-center gap-3 min-w-[300px]
-          `}
-          >
-            <div className='flex-shrink-0'>
-              <Loader2 className='w-5 h-5 animate-spin text-[#007e81]' />
-            </div>
-            <div className='flex-1'>
-              <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                {status.message}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {status.complete && !status.loading && (
-        <div className='fixed top-4 right-4 z-50 flex flex-col gap-2'>
-          <div
-            className={`
-            bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4
-            border border-gray-200 dark:border-gray-700
-            animate-fade-in transition-all duration-300
-            flex items-center gap-3 min-w-[300px]
-          `}
-          >
-            <div className='flex-shrink-0'>
-              <CheckCircle className='w-5 h-5 text-green-500' />
-            </div>
-            <div className='flex-1'>
-              <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                {status.message}
-              </p>
-            </div>
-          </div>
         </div>
       )}
     </main>
