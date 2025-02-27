@@ -8,7 +8,6 @@
 
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
-import { OutputManager } from '../output-manager';
 import { InformationCruncher } from './information-cruncher';
 // import { encode } from 'gpt-tokenizer';
 // import { InformationCruncher } from '../information-cruncher';
@@ -36,30 +35,17 @@ export interface ReportResult {
 }
 
 export class ReportWriter {
-    private output: OutputManager;
+    constructor() { }
 
-    constructor(output: OutputManager) {
-        this.output = output;
-    }
-
-    private log(...args: any[]) {
-        this.output.log(...args);
-    }
-
-    async generateReport({
-        prompt,
-        learnings,
-        visitedUrls,
-    }: {
+    async generateReport(params: {
         prompt: string;
         learnings: TrackedLearning[];
-        visitedUrls: string[];
     }): Promise<ReportResult> {
-        if (!learnings?.length || !visitedUrls?.length) {
-            throw new Error('Invalid input: Missing learnings or visitedUrls');
+        if (!params.learnings?.length) {
+            throw new Error('Invalid input: Missing learnings');
         }
 
-        this.log("Writing Final Report - 🥅🥅🥅🥅");
+        const { prompt, learnings } = params;
 
         const processedLearnings = await this.processLearnings(learnings);
         // This schema is absolutely necessary for pushing data to database for the report section.

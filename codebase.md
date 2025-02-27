@@ -262,3 +262,26 @@ Make sure these rules are not broken at all following our MVP philosophy. Let's 
 
 ### Websocket logic
 ![Websocket logic](websocket-logic.png)
+
+
+
+### Realtime websocket events that needs to fired in each process of during deep research.
+Here are all the processes and their corresponding events with exact keyword that need to be fired:
+1. Research Start Process
+    Events:
+      - Research_start
+      - followups_generated
+    generating_followups
+2. Information Gathering Process
+    Events:
+      - new_serp_query
+      - new_website_successfully_scrape
+      - website_analyzer_agent
+3. Information Crunching Process (triggered when words > 50k)
+    Events:
+      - crunching_serp_query
+      - crunched_information
+4. Report Writing Process
+    Events:
+      - report_writing_start
+      - report_writing_successfull

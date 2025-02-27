@@ -1,4 +1,3 @@
-import { OutputManager } from './output-manager';
 import { InformationCruncher, CrunchResult } from './agent/information-cruncher';
 import { generateQueriesWithObjectives } from './agent/query-generator';
 import { WebsiteAnalyzer } from './agent/website-analyzer';
@@ -8,13 +7,6 @@ import { Firecrawl } from '../content-extraction/firecrawl';
 import { type AgentResult, type ResearchProgress, type ResearchResult, type ScrapedContent, type SearxResult } from './types';
 import { encode } from 'gpt-tokenizer';
 import { ResearchDB } from './db';
-
-// Initialize output manager
-export const output = new OutputManager();
-
-export function setBroadcastFn(broadcastFn: (message: string) => void) {
-  output['broadcastFn'] = broadcastFn;
-}
 
 // Define types for MVP
 interface SerpQuery {
@@ -76,13 +68,12 @@ export async function deepResearch({
   if (breadth < 1 || depth < 1) throw new Error('Invalid depth or breadth');
 
   // Initialize agents and database
-  const searxng = new SearxNG(output);
-  const firecrawl = new Firecrawl(output);
-  const websiteAnalyzer = new WebsiteAnalyzer(output);
+  const searxng = new SearxNG();
+  const firecrawl = new Firecrawl();
+  const websiteAnalyzer = new WebsiteAnalyzer();
   const db = await ResearchDB.getInstance();
 
   let results: TrackedLearning[] = [...parentFindings];
-  let visitedUrls: string[] = [];
   let failedUrls: string[] = [];
   let totalTokenCount = parentTokenCount;
   let totalWordsAcrossQueries = 0;
@@ -126,7 +117,6 @@ export async function deepResearch({
         failedScrapes: scrapeFails.length
       });
 
-      visitedUrls.push(...limitedResults.map(r => r.url));
       failedUrls.push(...scrapeFails);
 
       // Save SERP query results to database
@@ -238,7 +228,7 @@ export async function deepResearch({
                 currentQuery: query.query,
                 totalQueries: queries.length,
                 completedQueries: queries.indexOf(query),
-                analyzedWebsites: visitedUrls.length
+                analyzedWebsites: results.length
               });
             }
 
@@ -303,7 +293,6 @@ export async function deepResearch({
         });
 
         results.push(...deeperResults.learnings);
-        visitedUrls.push(...deeperResults.visitedUrls);
         failedUrls.push(...deeperResults.failedUrls);
       }
     }
@@ -311,7 +300,6 @@ export async function deepResearch({
     // Final result
     return {
       learnings: results,
-      visitedUrls: [...new Set(visitedUrls)],
       failedUrls: [...new Set(failedUrls)]
     };
 

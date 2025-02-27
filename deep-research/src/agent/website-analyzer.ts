@@ -5,7 +5,6 @@
 
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
-import { OutputManager } from '../output-manager';
 import { ScrapedContent } from '../types';
 
 export interface WebsiteAnalysis {
@@ -36,19 +35,9 @@ const ANALYSIS_SCHEMA: Schema = {
 };
 
 export class WebsiteAnalyzer {
-  private output: OutputManager;
-
-  constructor(output: OutputManager) {
-    this.output = output;
-  }
-
-  private log(...args: any[]) {
-    this.output.log(...args);
-  }
+  constructor() { }
 
   async analyzeContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
-    this.output.log(`🔃🔃 Analyzing website: ${content.url} with content character count: ${content.markdown.length}`);
-
     try {
       const { response } = await generateObject({
         system: `You are the Website Analysis Agent. Your task is to review the scraped content of a given website in relation to a specific research objective and extract all relevant, factual, and verifiable information. Only include details that directly contribute to the research objective. Today is ${new Date().toISOString()}. Follow these instructions when responding:
@@ -81,11 +70,9 @@ Return:
       const websiteSummary: { isRelevant: boolean; extractedInfo: string, supportingQuote: string } = JSON.parse(response.text());
 
       if (!websiteSummary.isRelevant) {
-        this.log(`👎👎 Analyzed website: ${content.url} - Not relevant 😔😔`);
         return null;
       }
 
-      this.log(`✅✅ Analyzed website: ${content.url} - Relevant 😀😀`);
       return {
         content: websiteSummary.extractedInfo,
         sourceUrl: content.url,
@@ -94,7 +81,6 @@ Return:
       };
 
     } catch (error) {
-      this.log(`💀💀 Error analyzing content from ${content.url} 😭😭 :`, error);
       return null;
     }
   }

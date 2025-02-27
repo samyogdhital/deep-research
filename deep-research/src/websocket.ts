@@ -1,6 +1,5 @@
 import { Server as HttpServer } from 'http';
 import { Server as WebSocketServer } from 'socket.io';
-import { OutputManager } from './output-manager';
 import { WebsiteResult, CrunchedInfo } from './types';
 
 export interface ResearchState {
@@ -24,20 +23,18 @@ interface QueryData {
 
 export class WebSocketManager {
     private io: WebSocketServer;
-    private output: OutputManager;
     private currentResearch: ResearchState | null = null;
     private queries: Map<number, QueryData> = new Map();
     private crunchedInfo: CrunchedInfo[] = [];
     private currentPhase: string = 'understanding';
 
-    constructor(server: HttpServer, corsOrigin: string, output: OutputManager) {
+    constructor(server: HttpServer, corsOrigin: string) {
         this.io = new WebSocketServer(server, {
             cors: {
                 origin: corsOrigin,
                 credentials: true
             }
         });
-        this.output = output;
         this.setupSocketHandlers();
     }
 

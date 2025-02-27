@@ -2,8 +2,6 @@ import express, { Request, Response, NextFunction, ErrorRequestHandler } from 'e
 import { createServer } from 'http';
 import cors from 'cors';
 import { deepResearch } from './src/deep-research';
-import { OutputManager } from './src/output-manager';
-import { setBroadcastFn } from './src/deep-research';
 import { ResearchDB } from './src/db';
 import { generateFollowUps } from './src/agent/prompt-analyzer';
 import { ReportWriter } from './src/agent/report-writer';
@@ -16,11 +14,7 @@ const app = express();
 const httpServer = createServer(app);
 
 // Initialize managers
-const output = new OutputManager();
-const wsManager = new WebSocketManager(httpServer, process.env.FRONTEND_BASE_URL!, output);
-
-// Set broadcast function
-setBroadcastFn((message: string) => wsManager.sendLog(message));
+const wsManager = new WebSocketManager(httpServer, process.env.FRONTEND_BASE_URL!);
 
 // Express middleware
 app.use(cors({ origin: process.env.FRONTEND_BASE_URL, credentials: true }));
@@ -110,13 +104,12 @@ Initial Query: ${initial_query}
 Follow-up Answers:
 ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n')}`;
 
-        const { learnings, visitedUrls, failedUrls } = await deepResearch({
+        const { learnings, failedUrls } = await deepResearch({
             query_to_find_websites: fullContext,
             depth,
             breadth,
             signal: controller.signal,
             onProgress: (progress) => {
-                output.updateProgress(progress);
                 wsManager.updateResearchPhase('gathering');
             },
             onSourceUpdate: (queryData: QueryData) => {
@@ -132,17 +125,16 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
             researchId: report_id
         } as DeepResearchOptions);
 
-        if (!learnings?.length || !visitedUrls?.length) {
+        if (!learnings?.length) {
             throw new Error('Research completed but no results were found.');
         }
 
         // Generate report
         wsManager.updateResearchPhase('writing');
-        const reportWriter = new ReportWriter(output);
+        const reportWriter = new ReportWriter();
         const report = await reportWriter.generateReport({
             prompt: initial_query,
-            learnings: learnings,
-            visitedUrls: visitedUrls
+            learnings: learnings
         });
 
         // Save the report to database
