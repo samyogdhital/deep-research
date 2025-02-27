@@ -26,6 +26,7 @@ import { saveReport, getAllReports } from '@/lib/db'; // Add import
 import { useResearchStore } from '@/lib/research-store';
 import type { SerpQueryResult, ResearchSourcesLog } from '@/types/research';
 import { cn } from '@/lib/utils';
+import { ArrowBigRight } from 'lucide-react';
 
 interface Report {
   title: string;
@@ -670,7 +671,7 @@ export default function Home() {
                 )}
               >
                 <div className='flex w-full items-center justify-between pr-6'>
-                  <span className='text-sm font-bold text-gray-800 dark:text-gray-200'>
+                  <span className='text-base font-bold text-gray-800 dark:text-gray-200'>
                     Deep Research
                   </span>
                   <span className='text-xs text-gray-500 dark:text-gray-400'>
@@ -877,11 +878,11 @@ export default function Home() {
               className='text-white bg-[#007e81] hover:bg-[#00676a]
                 disabled:opacity-50 disabled:cursor-not-allowed
                 transition-colors shadow-md hover:shadow-lg
-                py-3 px-6 text-base font-medium rounded-lg
-                flex items-center gap-2'
+                py-2 px-3 text-base font-medium rounded-lg
+                flex items-center gap-0 pr-2'
             >
-              Start Deep Research
-              <ArrowRight size={18} />
+              Research
+              <ArrowBigRight size={20} />
             </Button>
           </div>
         </div>
