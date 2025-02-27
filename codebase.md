@@ -269,9 +269,8 @@ Make sure these rules are not broken at all following our MVP philosophy. Let's 
 Here are all the processes and their corresponding events with exact keyword that need to be fired:
 1. Research Start Process
     Events:
-      - Research_start
+      - generating_followups
       - followups_generated
-    generating_followups
 2. Information Gathering Process
     Events:
       - new_serp_query
