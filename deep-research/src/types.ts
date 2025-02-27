@@ -85,3 +85,34 @@ export type ResearchResult = {
     visitedUrls: string[];
     failedUrls: string[];
 };
+
+export interface DeepResearchOptions {
+    query_to_find_websites: string;
+    depth: number;
+    breadth: number;
+    signal?: AbortSignal;
+    onProgress?: (progress: ResearchProgress) => void;
+    onSourceUpdate?: (data: { query: string; url: string; content: string }) => void;
+    onWebsiteAnalysis?: (queryRank: number, website: WebsiteResult) => void;
+    onInformationCrunching?: (crunchedData: CrunchedInfo) => void;
+    researchId: string;
+    parentTokenCount?: number;
+    parentFindings?: TrackedLearning[];
+    currentDepth?: number;
+}
+
+export interface WebsiteResult {
+    url: string;
+    title: string;
+    description: string;
+    isRelevant: number;
+    extracted_from_website_analyzer_agent: string[];
+}
+
+export interface CrunchedInfo {
+    query_rank: number;
+    crunched_information: Array<{
+        url: string;
+        content: string[];
+    }>;
+}

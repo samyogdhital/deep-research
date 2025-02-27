@@ -7,9 +7,9 @@ import { setBroadcastFn } from './src/deep-research';
 import { ResearchDB } from './src/db';
 import { generateFollowUps } from './src/agent/prompt-analyzer';
 import { ReportWriter } from './src/agent/report-writer';
-import { WebSocketManager } from './src/websocket';
+import { WebSocketManager, ResearchState } from './src/websocket';
 import { config as envConfig } from 'dotenv';
-import { ResearchProgress } from './src/types';
+import { ResearchProgress, DeepResearchOptions, WebsiteResult, CrunchedInfo } from './src/types';
 
 envConfig();
 const app = express();
@@ -20,7 +20,7 @@ const output = new OutputManager();
 const wsManager = new WebSocketManager(httpServer, process.env.FRONTEND_BASE_URL!, output);
 
 // Set broadcast function
-setBroadcastFn((message: string) => wsManager.broadcast(message));
+setBroadcastFn((message: string) => wsManager.sendLog(message));
 
 // Express middleware
 app.use(cors({ origin: process.env.FRONTEND_BASE_URL, credentials: true }));
@@ -44,11 +44,11 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
             numQuestions: followupQuestions
         });
 
-        wsManager.broadcast('Questions generated successfully');
+        wsManager.updateResearchPhase('understanding');
         res.json({ questions });
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        wsManager.broadcast(`Error: ${errorMessage}`);
+        wsManager.handleResearchError(new Error(errorMessage));
         res.status(500).json({
             error: 'Failed to analyze prompt',
             details: errorMessage
@@ -58,9 +58,11 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
 
 app.post('/api/research/start', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { prompt, depth, breadth, followUpAnswers, followUps_num } = req.body;
-        if (!prompt?.trim()) {
-            res.status(400).json({ error: 'Prompt is required' });
+        const { initial_query, depth, breadth, followUpAnswers, followUps_num } = req.body;
+
+        // Validate required fields
+        if (!initial_query?.trim()) {
+            res.status(400).json({ error: 'Initial query is required' });
             return;
         }
 
@@ -72,7 +74,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
         // Initialize research in database
         const db = await ResearchDB.getInstance();
-        const report_id = await db.initializeResearch(prompt, depth, breadth, followUps_num);
+        const report_id = await db.initializeResearch(initial_query, depth, breadth, followUps_num);
 
         // Save follow-up QnA
         try {
@@ -85,34 +87,26 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             }
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            wsManager.broadcast(`Error saving follow-up answers: ${errorMessage}`);
+            wsManager.handleResearchError(new Error(errorMessage));
             throw error;
         }
 
         // Setup research state
         const controller = new AbortController();
-        const research = {
+        const research: ResearchState = {
+            id: report_id,
+            prompt: initial_query,
+            status: 'collecting',
+            startTime: Date.now(),
             controller,
-            cleanup: () => { },
-            sourcesLog: {
-                queries: [],
-                lastUpdated: new Date().toISOString()
-            },
-            onProgress: (progress: ResearchProgress) => output.updateProgress(progress)
+            cleanup: () => { }
         };
 
-        // Set current research in WebSocket manager
-        wsManager.setCurrentResearch(research);
-        wsManager.handleResearchStart(research, {
-            researchId: report_id,
-            prompt,
-            signal: controller.signal,
-            onProgress: research.onProgress
-        });
+        // Start research process
+        wsManager.handleResearchStart(research);
 
-        // Start research
         const fullContext = `
-Initial Query: ${prompt}
+Initial Query: ${initial_query}
 Follow-up Answers:
 ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n')}`;
 
@@ -121,85 +115,43 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
             depth,
             breadth,
             signal: controller.signal,
-            onProgress: (progress) => output.updateProgress(progress),
-            onSourceUpdate: (queryData) => wsManager.handleSourceUpdate(queryData),
+            onProgress: (progress) => {
+                output.updateProgress(progress);
+                wsManager.updateResearchPhase('gathering');
+            },
+            onSourceUpdate: (queryData) => {
+                wsManager.updateSourceProgress(queryData);
+            },
+            onWebsiteAnalysis: (queryRank: number, website: WebsiteResult) => {
+                wsManager.updateWebsiteAnalysis(queryRank, website);
+            },
+            onInformationCrunching: (crunchedData: CrunchedInfo) => {
+                wsManager.updateResearchPhase('crunching');
+                wsManager.updateInformationCrunching(crunchedData);
+            },
             researchId: report_id
-        });
-
-        // Log research results
-        console.log('Research completed with:', {
-            learningsCount: learnings?.length || 0,
-            visitedUrlsCount: visitedUrls?.length || 0,
-            failedUrlsCount: failedUrls?.length || 0
-        });
+        } as DeepResearchOptions);
 
         if (!learnings?.length || !visitedUrls?.length) {
-            throw new Error('Research completed but no results were found. This could be because no relevant content was found or all website analyses failed.');
+            throw new Error('Research completed but no results were found.');
         }
 
-        // Generate and save report
-        wsManager.updateResearchPhase('generating-report');
+        // Generate report
+        wsManager.updateResearchPhase('writing');
         const reportWriter = new ReportWriter(output);
         const report = await reportWriter.generateReport({
-            prompt,
+            prompt: initial_query,
             learnings: learnings,
             visitedUrls: visitedUrls
         });
 
-        // Log report generation
-        console.log('Report generated with:', {
-            title: report.report_title,
-            sectionsCount: report.report.split('\n#').length,
-            sourcesCount: report.sources?.length || 0
-        });
-
-        // Parse the markdown report to extract sections
-        const sections = report.report.split('\n#').map((section, index) => {
-            const lines = section.trim().split('\n');
-            const heading = lines[0]?.replace(/^#+\s*/, '') || `Section ${index + 1}`;
-            const content = lines.slice(1).join('\n').trim();
-            return {
-                rank: index + 1,
-                sectionHeading: heading,
-                content: content
-            };
-        });
-
-        // Save report using the same ResearchDB instance
-        await db.saveReport({
-            title: report.report_title,
-            report_id,
-            sections: sections.filter(s => s.sectionHeading && s.content),
-            citedUrls: report.sources.map((source, index) => ({
-                rank: index + 1,
-                url: source.url,
-                title: source.title,
-                oneValueablePoint: source.title
-            })),
-            isVisited: false,
-            timestamp: Date.now()
-        });
-
-        // Get complete research data from database
-        const researchData = await db.getResearchData(report_id);
-        if (!researchData) {
-            throw new Error('Failed to retrieve research data from database');
-        }
-
         // Complete research
-        wsManager.handleResearchComplete(
-            report_id,
-            report.report_title,
-            report_id,
-            research.sourcesLog
-        );
-
-        // Send only the database data to frontend
-        res.json(researchData);
+        wsManager.handleResearchComplete(report_id, report.report_title);
+        res.json(await db.getResearchData(report_id));
 
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        wsManager.broadcast(`Error: ${errorMessage}`);
+        wsManager.handleResearchError(new Error(errorMessage));
         res.status(500).json({
             error: 'Research failed',
             details: errorMessage

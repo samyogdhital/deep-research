@@ -1,162 +1,181 @@
-import { Server as SocketServer, Socket } from 'socket.io';
-import { Server } from 'http';
+import { Server as HttpServer } from 'http';
+import { Server as WebSocketServer } from 'socket.io';
 import { OutputManager } from './output-manager';
+import { WebsiteResult, CrunchedInfo } from './types';
 
 export interface ResearchState {
+    id: string;
+    prompt: string;
+    sourcesLog?: any;
+    status: 'idle' | 'collecting' | 'complete' | 'failed';
+    startTime?: number;
     controller: AbortController;
     cleanup: () => void;
-    sourcesLog?: {
-        queries: any[];
-        lastUpdated: string;
-    };
+}
+
+interface QueryData {
+    query: string;
+    objective: string;
+    query_rank: number;
+    successful_scraped_websites?: WebsiteResult[];
+    failedWebsites?: string[];
+    timestamp?: string;
 }
 
 export class WebSocketManager {
-    private io: SocketServer;
+    private io: WebSocketServer;
+    private output: OutputManager;
     private currentResearch: ResearchState | null = null;
-    private ongoingResearch = new Map<string, {
-        id: string;
-        prompt: string;
-        startTime: number;
-        status: 'collecting' | 'analyzing' | 'generating';
-    }>();
+    private queries: Map<number, QueryData> = new Map();
+    private crunchedInfo: CrunchedInfo[] = [];
+    private currentPhase: string = 'understanding';
 
-    constructor(httpServer: Server, frontendUrl: string, output: OutputManager) {
-        this.io = new SocketServer(httpServer, {
+    constructor(server: HttpServer, corsOrigin: string, output: OutputManager) {
+        this.io = new WebSocketServer(server, {
             cors: {
-                origin: frontendUrl,
-                methods: ["GET", "POST"],
-                credentials: true,
-                allowedHeaders: ["Content-Type"]
+                origin: corsOrigin,
+                credentials: true
             }
         });
-
+        this.output = output;
         this.setupSocketHandlers();
     }
 
     private setupSocketHandlers() {
-        this.io.on('connection', (socket: Socket) => {
-            socket.emit('ongoing-research-update', Array.from(this.ongoingResearch.values()));
-
-            socket.on('request-ongoing-research', () => {
-                socket.emit('ongoing-research-update', Array.from(this.ongoingResearch.values()));
+        this.io.on('connection', (socket) => {
+            // Handle request for initial state
+            socket.on('get-research-state', () => {
+                socket.emit('research-state', {
+                    phase: this.currentPhase,
+                    queries: Array.from(this.queries.values()).sort((a, b) => a.query_rank - b.query_rank),
+                    crunchedInfo: this.crunchedInfo
+                });
             });
 
             socket.on('stop-research', () => {
                 if (this.currentResearch) {
-                    this.broadcast('Research terminated by user');
+                    this.updateResearchPhase('stopped');
                     this.currentResearch.controller.abort();
                     this.currentResearch.cleanup();
                     this.currentResearch = null;
                 }
             });
-
-            socket.on('request-sources', () => {
-                if (this.currentResearch?.sourcesLog) {
-                    socket.emit('sources-update', this.currentResearch.sourcesLog);
-                }
-            });
         });
     }
 
-    public broadcast(message: string) {
-        this.io.emit('log', message);
+    private emit(event: string, data?: any) {
+        this.io.emit(event, data);
     }
 
-    public setCurrentResearch(research: ResearchState) {
-        this.currentResearch = research;
+    public sendLog(message: string) {
+        this.emit('log', message);
     }
 
-    public updateResearchStatus(researchId: string, research: {
-        id: string;
-        prompt: string;
-        startTime: number;
-        status: 'collecting' | 'analyzing' | 'generating';
-    }) {
-        this.ongoingResearch.set(researchId, research);
-        this.io.emit('ongoing-research-update', Array.from(this.ongoingResearch.values()));
-    }
+    updateResearchPhase(phase: 'understanding' | 'gathering' | 'crunching' | 'writing' | 'complete' | 'stopped' | 'error') {
+        // Only update if the phase is actually changing
+        if (this.currentPhase !== phase) {
+            this.currentPhase = phase;
+            this.emit('research-phase', phase);
 
-    public removeResearch(researchId: string) {
-        this.ongoingResearch.delete(researchId);
-        this.io.emit('ongoing-research-update', Array.from(this.ongoingResearch.values()));
-    }
-
-    public updateResearchPhase(phase: string) {
-        this.io.emit('research-phase', phase);
-    }
-
-    public updateSources(sourcesLog: any) {
-        this.io.emit('sources-update', sourcesLog);
-    }
-
-    public notifyReportComplete(data: { id: string; report_title: string }) {
-        this.io.emit('reports-updated');
-        this.io.emit('research-completed', data);
-    }
-
-    public notifyResearchFailed(researchId: string) {
-        this.io.emit('research-failed', { id: researchId });
-    }
-
-    public async handleResearchStart(research: ResearchState, context: {
-        researchId: string,
-        prompt: string,
-        signal: AbortSignal,
-        onProgress: (progress: any) => void
-    }) {
-        this.setCurrentResearch(research);
-        this.updateResearchStatus(context.researchId, {
-            id: context.researchId,
-            prompt: context.prompt,
-            startTime: Date.now(),
-            status: 'collecting'
-        });
-        this.updateResearchPhase('collecting-sources');
-    }
-
-    public handleSourceUpdate(queryData: any) {
-        if (this.currentResearch?.sourcesLog) {
-            const updatedQuery = {
-                ...queryData,
-                timestamp: new Date().toISOString()
+            const phaseMessages = {
+                understanding: 'Generating follow-up questions...',
+                gathering: 'Starting deep research...',
+                crunching: 'Information crunching started',
+                writing: 'Generating report',
+                complete: 'Research completed successfully',
+                stopped: 'Research process stopped',
+                error: 'Research process encountered an error'
             };
-            this.currentResearch.sourcesLog.queries.push(updatedQuery);
-            this.currentResearch.sourcesLog.lastUpdated = new Date().toISOString();
-            this.updateSources(this.currentResearch.sourcesLog);
+
+            this.sendLog(phaseMessages[phase]);
         }
     }
 
-    public handleResearchComplete(researchId: string, reportTitle: string, reportId: string, sourcesLog: any) {
-        this.removeResearch(researchId);
-        this.notifyReportComplete({
-            id: researchId,
-            report_title: reportTitle
+    handleResearchStart(research: ResearchState) {
+        this.currentResearch = research;
+        this.queries.clear(); // Clear any previous queries
+        this.crunchedInfo = []; // Clear any previous crunched info
+        this.updateResearchPhase('understanding');
+    }
+
+    updateSourceProgress(queryData: QueryData) {
+        // If this is the first query, transition to gathering phase
+        if (this.queries.size === 0) {
+            this.updateResearchPhase('gathering');
+        }
+
+        // Update local state
+        this.queries.set(queryData.query_rank, queryData);
+
+        // Emit update with full query data
+        this.emit('sources-update', {
+            queries: Array.from(this.queries.values()).sort((a, b) => a.query_rank - b.query_rank)
         });
-        return {
-            id: reportId,
-            report_title: reportTitle,
-            sourcesLog
-        };
     }
 
-    public handleResearchError(error: Error, researchId?: string) {
-        this.updateResearchPhase('idle');
+    updateWebsiteAnalysis(queryRank: number, website: WebsiteResult) {
+        const query = this.queries.get(queryRank);
+        if (!query) return;
 
-        if (error.name === 'AbortError') {
-            this.broadcast('Research process stopped');
-            return { status: 'stopped' };
+        // First emit the individual website analysis
+        this.emit('website-analysis', {
+            queryRank,
+            website
+        });
+
+        // Then update the full query state
+        if (!query.successful_scraped_websites) {
+            query.successful_scraped_websites = [];
+        }
+        query.successful_scraped_websites.push(website);
+
+        // Emit update with full query data
+        this.emit('sources-update', {
+            queries: Array.from(this.queries.values()).sort((a, b) => a.query_rank - b.query_rank)
+        });
+    }
+
+    updateInformationCrunching(crunchedData: CrunchedInfo) {
+        // First time receiving crunched data, emit crunching start
+        if (this.crunchedInfo.length === 0) {
+            this.updateResearchPhase('crunching');
+            this.emit('information-crunching-start', true);
         }
 
-        if (researchId) {
-            this.removeResearch(researchId);
-            this.notifyResearchFailed(researchId);
-        }
+        this.crunchedInfo.push(crunchedData);
 
-        this.broadcast(`Error: ${error.message}`);
-        return {
-            error: 'Research failed',
-            details: error.message
-        };
+        // Emit both the new data and full state
+        this.emit('information-crunching-update', {
+            crunchedInfo: this.crunchedInfo
+        });
+    }
+
+    handleResearchComplete(reportId: string, title: string) {
+        if (!this.currentResearch) return;
+
+        this.updateResearchPhase('writing');
+
+        // Emit the completion after a short delay to allow for writing phase UI update
+        setTimeout(() => {
+            this.updateResearchPhase('complete');
+            this.emit('research-completed', {
+                id: reportId,
+                report_title: title
+            });
+
+            // Clear state
+            this.currentResearch = null;
+            this.queries.clear();
+            this.crunchedInfo = [];
+        }, 2000);
+    }
+
+    handleResearchError(error: Error) {
+        this.updateResearchPhase('error');
+        this.emit('log', `Error: ${error.message}`);
+
+        if (this.currentResearch) {
+            this.currentResearch = null;
+        }
     }
 }
