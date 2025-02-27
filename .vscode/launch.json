@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      // Start both the server and the Edge debugger at once
+      "name": "Debug Next.js (Server + Frontend)",
+      "configurations": ["Debug Next.js (Server)", "Launch Edge (Frontend)"]
+    }
+  ],
+  "configurations": [
+    {
+      // 1. Debug the server-side code (Node process)
+      "name": "Debug Next.js (Server)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/frontend/node_modules/next/dist/bin/next",
+      "args": ["dev"],
+      "cwd": "${workspaceFolder}/frontend",
+      "env": {
+        "NODE_OPTIONS": "--inspect" // or "--inspect-brk" to break on first line
+      },
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal"
+    },
+    {
+      // 2. Launch Edge in remote-debugging mode (client-side code)
+      "name": "Launch Edge (Frontend)",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/frontend",
+      // Adjust this path if your Edge installation is different:
+      "runtimeExecutable": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+      "runtimeArgs": ["--remote-debugging-port=9222"],
+      "trace": true
+    }
+  ]
+}

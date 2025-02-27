@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Download, Check, ArrowRight } from 'lucide-react';
+import {
+  Download,
+  Check,
+  ArrowRight,
+  Loader2,
+  CheckCircle,
+} from 'lucide-react';
 import { Spinner } from '../components/spinner';
 import { TbSend2 } from 'react-icons/tb';
 import ReactMarkdown from 'react-markdown';
@@ -18,6 +24,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { saveReport, getAllReports } from '@/lib/db'; // Add import
 import { useResearchStore } from '@/lib/research-store';
+import type { SerpQueryResult, ResearchSourcesLog } from '@/types/research';
 
 interface Report {
   title: string;
@@ -51,27 +58,9 @@ type ResearchState = {
   logs: string[];
   showLogs: boolean;
   report: Report | null;
+  sourcesLog?: ResearchSourcesLog;
 };
 
-type SerpQueryResult = {
-  query: string;
-  objective: string;
-  successfulScrapes: Array<{
-    url: string;
-    extractedContent: string;
-  }>;
-  failedScrapes: Array<{
-    url: string;
-    error: string;
-  }>;
-};
-
-type ResearchSourcesLog = {
-  queries: SerpQueryResult[];
-  lastUpdated: string;
-};
-
-// Add new types
 type ResearchPhase =
   | 'idle'
   | 'collecting-sources'
@@ -271,26 +260,44 @@ export default function Home() {
 
   // Handle parameter button clicks
   const handleDepthClick = () => {
+    setShowDepthInput(!showDepthInput);
     setShowBreadthInput(false);
-    setShowDepthInput(true);
     setShowFollowUpsInput(false);
   };
 
   const handleBreadthClick = () => {
-    setShowBreadthInput(true);
+    setShowBreadthInput(!showBreadthInput);
     setShowDepthInput(false);
     setShowFollowUpsInput(false);
   };
 
   const handleFollowUpsClick = () => {
-    setShowBreadthInput(false);
+    setShowFollowUpsInput(!showFollowUpsInput);
     setShowDepthInput(false);
-    setShowFollowUpsInput(true);
+    setShowBreadthInput(false);
   };
 
   const handleInitialSubmit = async () => {
+    if (!state.initialPrompt.trim()) {
+      alert('Please enter a research query');
+      return;
+    }
+
     try {
-      setState((prev) => ({ ...prev, step: 'processing' }));
+      // Reset state before starting
+      setState((prev) => ({
+        ...prev,
+        step: 'processing',
+        generatedFollowUpQuestions: [],
+        followUps_QnA: [], // Ensure this is always an array
+        logs: [...prev.logs, 'Generating follow-up questions...'],
+      }));
+
+      setStatus({
+        loading: true,
+        message: 'Generating follow-up questions...',
+        complete: false,
+      });
 
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/questions`,
@@ -310,33 +317,86 @@ export default function Home() {
       }
 
       const data = await response.json();
-      if (!data.questions || !Array.isArray(data.questions)) {
-        throw new Error('Invalid response format');
+
+      // Validate data structure
+      if (!data || !data.questions || !Array.isArray(data.questions)) {
+        throw new Error('Invalid response format from server');
       }
 
-      // Update state with generated questions
+      // Ensure questions is an array and map it safely
+      const questions = Array.isArray(data.questions) ? data.questions : [];
+      const followUps = questions.map((q: string, idx: number) => ({
+        id: idx + 1,
+        question: q,
+        answer: '',
+      }));
+
+      // Update state with generated questions and move to follow-up step
       setState((prev) => ({
         ...prev,
         step: 'follow-up',
-        generatedFollowUpQuestions: data.questions,
-        followUps_QnA: data.questions.map((q, idx) => ({
-          id: idx + 1,
-          question: q,
-          answer: '',
-        })),
+        generatedFollowUpQuestions: questions,
+        followUps_QnA: followUps, // This will always be an array
+        logs: [...prev.logs, 'Follow-up questions generated successfully'],
       }));
+
+      setStatus({
+        loading: false,
+        message: 'Questions generated successfully',
+        complete: true,
+      });
     } catch (error) {
       console.error('Error:', error);
-      alert(
-        error instanceof Error ? error.message : 'Failed to generate questions'
-      );
-      setState((prev) => ({ ...prev, step: 'input' }));
+
+      // Reset to initial state on error, ensuring arrays are empty but defined
+      setState((prev) => ({
+        ...prev,
+        step: 'input',
+        generatedFollowUpQuestions: [],
+        followUps_QnA: [], // Always reset to empty array, never undefined
+        logs: [
+          ...prev.logs,
+          `Error: ${
+            error instanceof Error
+              ? error.message
+              : 'Failed to generate questions'
+          }`,
+        ],
+      }));
+
+      setStatus({
+        loading: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to generate questions',
+        complete: false,
+      });
     }
   };
 
   const handleResearchStart = async () => {
+    // Validate all questions are answered
+    if (state.followUps_QnA.some((qa) => !qa.answer.trim())) {
+      alert('Please answer all follow-up questions');
+      return;
+    }
+
     try {
       const researchId = crypto.randomUUID();
+      setCurrentResearchId(researchId);
+
+      setState((prev) => ({
+        ...prev,
+        step: 'processing',
+        logs: [...prev.logs, 'Starting deep research...'],
+      }));
+
+      setStatus({
+        loading: true,
+        message: 'Starting deep research...',
+        complete: false,
+      });
 
       // Add to ongoing research with proper type
       useResearchStore.getState().addResearch({
@@ -347,10 +407,13 @@ export default function Home() {
       });
 
       // Format follow-up answers to match backend schema
-      const followUpAnswers = state.followUps_QnA.reduce((acc, curr) => {
-        acc[curr.id] = curr.answer;
-        return acc;
-      }, {} as Record<number, string>);
+      const followUpAnswers = state.followUps_QnA.reduce(
+        (acc: Record<string, string>, curr) => {
+          acc[curr.id.toString()] = curr.answer;
+          return acc;
+        },
+        {}
+      );
 
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`,
@@ -372,22 +435,53 @@ export default function Home() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.details || 'Research failed');
+        throw new Error(errorData.details || 'Research failed to start');
       }
 
       const data = await response.json();
 
       // Update research store with report title
-      useResearchStore
-        .getState()
-        .updateResearch(researchId, data.report?.title);
+      if (data.report?.title) {
+        useResearchStore.getState().updateResearch(researchId, {
+          status: 'analyzing',
+        });
+      }
+
+      // Add success log
+      setState((prev) => ({
+        ...prev,
+        logs: [
+          ...prev.logs,
+          'Research started successfully. Redirecting to report page...',
+        ],
+      }));
 
       // Redirect to report page using report_id
-      router.push(`/report/${data.report_id}`);
+      router.push(`/report/${researchId}`);
     } catch (error) {
       console.error('Research error:', error);
-      alert(error instanceof Error ? error.message : 'Research failed');
-      setState((prev) => ({ ...prev, step: 'input' }));
+
+      // Update research store to remove failed research
+      if (currentResearchId) {
+        useResearchStore.getState().removeResearch(currentResearchId);
+      }
+
+      setState((prev) => ({
+        ...prev,
+        step: 'input',
+        logs: [
+          ...prev.logs,
+          `Error: ${
+            error instanceof Error ? error.message : 'Research failed'
+          }`,
+        ],
+      }));
+
+      setStatus({
+        loading: false,
+        message: error instanceof Error ? error.message : 'Research failed',
+        complete: false,
+      });
     }
   };
 
@@ -395,26 +489,30 @@ export default function Home() {
   const handleAnswerChange = (questionId: number, answer: string) => {
     setState((prev) => ({
       ...prev,
-      followUps_QnA: prev.followUps_QnA.map((qa) =>
-        qa.id === questionId ? { ...qa, answer } : qa
+      followUps_QnA: prev.followUps_QnA.map(
+        (qa: { id: number; question: string; answer: string }) =>
+          qa.id === questionId ? { ...qa, answer } : qa
       ),
     }));
   };
 
-  const downloadReport = (format: 'pdf' | 'md') => {
-    const reportContent = state.report;
-    const fileName = `research-report.${format}`;
-    const mimeType = 'text/markdown';
+  const handleDownload = () => {
+    if (!state.report) return;
 
-    const blob = new Blob([reportContent], { type: mimeType });
-    const url = window.URL.createObjectURL(blob);
+    // Convert report to string format for download
+    const reportContent = state.report.sections
+      .map((section) => `# ${section.sectionHeading}\n\n${section.content}`)
+      .join('\n\n');
+
+    const blob = new Blob([reportContent], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName;
+    a.download = `${state.report.title || 'research-report'}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);
   };
 
   // Add ref for textarea
@@ -449,21 +547,24 @@ export default function Home() {
 
   // Update input handlers to avoid null
   const handleDepthChange = (value: string) => {
-    const numValue =
-      value === '' ? 1 : Math.max(1, Math.min(10, parseInt(value) || 1));
-    setState((prev) => ({ ...prev, depth: numValue }));
+    const depth = parseInt(value);
+    if (!isNaN(depth) && depth >= 1 && depth <= 10) {
+      setState((prev) => ({ ...prev, depth }));
+    }
   };
 
   const handleBreadthChange = (value: string) => {
-    const numValue =
-      value === '' ? 1 : Math.max(1, Math.min(10, parseInt(value) || 1));
-    setState((prev) => ({ ...prev, breadth: numValue }));
+    const breadth = parseInt(value);
+    if (!isNaN(breadth) && breadth >= 1 && breadth <= 10) {
+      setState((prev) => ({ ...prev, breadth }));
+    }
   };
 
   const handleFollowUpsChange = (value: string) => {
-    const numValue =
-      value === '' ? 1 : Math.max(1, Math.min(10, parseInt(value) || 1));
-    setState((prev) => ({ ...prev, followUps_num: numValue }));
+    const followUps = parseInt(value);
+    if (!isNaN(followUps) && followUps >= 1 && followUps <= 10) {
+      setState((prev) => ({ ...prev, followUps_num: followUps }));
+    }
   };
 
   return (
@@ -602,35 +703,73 @@ export default function Home() {
       {/* Updated Log Section */}
       {state.step !== 'input' && (
         <div className='mb-8'>
-          <Accordion type='single' className='w-full' collapsible>
+          <Accordion
+            type='single'
+            className='w-full'
+            collapsible
+            defaultValue='item-1'
+          >
             <AccordionItem
               value='item-1'
-              className='border-2 dark:border-gray-700 rounded-lg'
+              className='border-2 dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200'
             >
               <AccordionTrigger className='px-4 py-5 bg-white dark:bg-[#202121] rounded-t-lg data-[state=open]:rounded-b-none hover:no-underline'>
                 <div className='flex items-center gap-3 w-full overflow-hidden'>
-                  {' '}
-                  {/* Added overflow-hidden to the container */}
                   {status.loading ? (
-                    <Spinner className='w-5 h-5 flex-shrink-0 text-gray-700 dark:text-white' />
+                    <Spinner className='w-5 h-5 flex-shrink-0 text-[#007e81] dark:text-[#00676a]' />
                   ) : status.complete ? (
                     <Check className='w-5 h-5 flex-shrink-0 text-green-500' />
-                  ) : null}
-                  <span className='truncate text-gray-900 dark:text-gray-100 font-medium'>
-                    {latestLog || status.message || 'Ready to begin research'}
-                  </span>
+                  ) : (
+                    <div className='w-5 h-5 flex-shrink-0' />
+                  )}
+                  <div className='flex flex-col gap-1 text-left flex-1 min-w-0'>
+                    <span className='truncate text-gray-900 dark:text-gray-100 font-medium'>
+                      {status.message || 'Research Progress'}
+                    </span>
+                    <span className='text-sm text-gray-500 dark:text-gray-400 truncate'>
+                      {latestLog || 'Ready to begin research'}
+                    </span>
+                  </div>
                 </div>
               </AccordionTrigger>
-              <AccordionContent className='border-t bg-gray-100 dark:bg-[#313131]'>
-                <div className='bg-gray-100 dark:bg-[#313131] p-4 rounded-b-lg'>
-                  {state.logs.map((log, idx) => (
-                    <div
-                      key={idx}
-                      className='py-1.5 text-gray-700 dark:text-white'
-                    >
-                      {log}
-                    </div>
-                  ))}
+              <AccordionContent className='border-t dark:border-gray-700'>
+                <div className='bg-gray-50 dark:bg-[#161717] p-4 rounded-b-lg space-y-2 max-h-[400px] overflow-y-auto'>
+                  {state.logs.map((log: string, idx: number) => {
+                    const isError = log.toLowerCase().includes('error');
+                    const isSuccess =
+                      log.toLowerCase().includes('success') ||
+                      log.toLowerCase().includes('complete');
+                    const isWarning = log.toLowerCase().includes('warning');
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`py-2.5 px-4 rounded-lg flex items-start gap-3 transition-colors duration-200 ${
+                          isError
+                            ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
+                            : isSuccess
+                            ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
+                            : isWarning
+                            ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200'
+                            : 'bg-white dark:bg-gray-800/50 text-gray-700 dark:text-gray-200'
+                        }`}
+                      >
+                        {isError ? (
+                          <span className='text-red-500'>⚠️</span>
+                        ) : isSuccess ? (
+                          <span className='text-green-500'>✓</span>
+                        ) : isWarning ? (
+                          <span className='text-yellow-500'>⚠</span>
+                        ) : (
+                          <span className='text-gray-400'>•</span>
+                        )}
+                        <span className='flex-1'>{log}</span>
+                        <span className='text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap'>
+                          {new Date().toLocaleTimeString()}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -640,49 +779,97 @@ export default function Home() {
 
       {/* Updated Follow-up section */}
       {state.step === 'follow-up' && (
-        <div className='space-y-6'>
-          <h2 className='text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6'>
-            Follow-up Questions
-          </h2>
-          {state.followUps_QnA.map((qa) => (
-            <div key={qa.id} className='space-y-2'>
-              <p className='font-bold text-gray-700 dark:text-gray-300'>
-                {qa.question}
-              </p>
-              <textarea
-                className='w-full p-4 border-2 rounded-lg text-base font-medium 
-                  focus:outline-none focus:ring-0 focus:border-gray-400
-                  dark:bg-[#202121] dark:text-white dark:border-gray-700
-                  dark:focus:border-[#007e81] transition-colors
-                  resize-none min-h-[120px]'
-                value={qa.answer}
-                onChange={(e) => handleAnswerChange(qa.id, e.target.value)}
-              />
+        <div className='space-y-8 max-w-3xl mx-auto'>
+          <div className='text-center space-y-2'>
+            <h2 className='text-3xl font-bold text-gray-800 dark:text-gray-100'>
+              Follow-up Questions
+            </h2>
+            <p className='text-gray-600 dark:text-gray-400'>
+              Help us understand your research needs better by answering these
+              questions
+            </p>
+          </div>
+          {Array.isArray(state.followUps_QnA) &&
+          state.followUps_QnA.length > 0 ? (
+            state.followUps_QnA.map((qa, idx) => (
+              <div
+                key={qa.id}
+                className='bg-white dark:bg-[#202121] rounded-xl p-6 shadow-sm border-2 border-gray-100 dark:border-gray-800 space-y-4 transition-all duration-200 hover:shadow-md'
+              >
+                <div className='flex items-start gap-4'>
+                  <div className='flex-shrink-0 w-8 h-full'>
+                    <span className='sticky top-0 flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-medium'>
+                      {idx + 1}
+                    </span>
+                  </div>
+                  <div className='flex-1 space-y-3'>
+                    <p className='font-medium text-gray-800 dark:text-gray-200'>
+                      {qa.question}
+                    </p>
+                    <div className='relative'>
+                      <textarea
+                        className='w-full p-4 border-2 rounded-lg text-base
+                          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400
+                          dark:bg-[#161717] dark:text-white dark:border-gray-700
+                          dark:focus:ring-[#007e81] dark:focus:ring-offset-[#202121]
+                          transition-all duration-200
+                          resize-none overflow-hidden min-h-[120px] max-h-[400px]'
+                        value={qa.answer}
+                        onChange={(e) => {
+                          handleAnswerChange(qa.id, e.target.value);
+                          // Auto-expand logic
+                          e.target.style.height = 'auto';
+                          e.target.style.height =
+                            Math.min(e.target.scrollHeight, 400) + 'px';
+                        }}
+                        onInput={(e) => {
+                          const target = e.target as HTMLTextAreaElement;
+                          target.style.height = 'auto';
+                          target.style.height =
+                            Math.min(target.scrollHeight, 400) + 'px';
+                        }}
+                        placeholder='Type your answer here...'
+                        rows={4}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className='text-center text-gray-500 dark:text-gray-400 py-8'>
+              Loading questions...
             </div>
-          ))}
-          <div className='flex justify-end mt-8'>
+          )}
+          <div className='flex justify-end mt-8 mb-12'>
             <Button
               onClick={handleResearchStart}
-              disabled={state.followUps_QnA.some((qa) => !qa.answer.trim())}
-              className='text-black bg-white hover:text-white hover:bg-black
-                dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white border border-black
-                transition-colors'
+              disabled={
+                !Array.isArray(state.followUps_QnA) ||
+                state.followUps_QnA.length === 0 ||
+                state.followUps_QnA.some((qa) => !qa.answer?.trim())
+              }
+              className='text-white bg-[#007e81] hover:bg-[#00676a]
+                disabled:opacity-50 disabled:cursor-not-allowed
+                transition-colors shadow-md hover:shadow-lg
+                py-3 px-6 text-base font-medium rounded-lg
+                flex items-center gap-2'
             >
-              Deep Research
-              <ArrowRight size={18} className='ml-2' />
+              Start Deep Research
+              <ArrowRight size={18} />
             </Button>
           </div>
         </div>
       )}
       {/* dark:bg-[#007e81] dark:hover:bg-[#00676a] */}
       {/* Complete section */}
-      {state.step === 'complete' && (
+      {state.step === 'complete' && state.report && (
         <div className='space-y-6'>
           {/* Download button */}
           <div className='flex justify-end'>
             <Button
               variant='outline'
-              onClick={() => downloadReport('md')}
+              onClick={handleDownload}
               className='flex items-center gap-2 px-3 py-2 border border-black transition-colors hover:text-white hover:bg-black dark:bg-transparent dark:text-[#007e81] dark:border-[#007e81] dark:hover:hover:bg-[#00676a] dark:hover:text-white'
             >
               <Download size={16} />
@@ -716,7 +903,12 @@ export default function Home() {
                 p: ({ node, ...props }) => <p className='my-4' {...props} />,
               }}
             >
-              {state.report}
+              {state.report.sections
+                .map(
+                  (section) =>
+                    `# ${section.sectionHeading}\n\n${section.content}`
+                )
+                .join('\n\n')}
             </ReactMarkdown>
           </div>
         </div>
@@ -734,77 +926,147 @@ export default function Home() {
             <Accordion type='single' collapsible defaultValue='sources'>
               <AccordionItem value='sources'>
                 <AccordionTrigger className='text-xl font-bold'>
-                  All Sources
+                  All Sources{' '}
+                  {state.sourcesLog?.queries?.length
+                    ? `(${state.sourcesLog.queries.length})`
+                    : ''}
                 </AccordionTrigger>
                 <AccordionContent>
-                  {state.sourcesLog.queries.map((query, idx) => (
-                    <Accordion
-                      key={idx}
-                      type='single'
-                      collapsible
-                      className='ml-4 mb-4'
-                    >
-                      <AccordionItem value={`query-${idx}`}>
-                        <AccordionTrigger className='text-lg font-semibold'>
-                          {query.query} - {query.objective}
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          {/* Successfully scraped section */}
-                          {query.successfulScrapes.length > 0 && (
-                            <div className='mb-4'>
-                              <h4 className='font-medium mb-2 text-green-600 dark:text-green-400'>
-                                Successfully Scraped (
-                                {query.successfulScrapes.length})
-                              </h4>
-                              <ol className='list-decimal ml-4 space-y-4'>
-                                {query.successfulScrapes.map((scrape, sIdx) => (
-                                  <li
-                                    key={sIdx}
-                                    className='text-gray-800 dark:text-gray-200'
-                                  >
-                                    <a
-                                      href={scrape.url}
-                                      target='_blank'
-                                      rel='noopener noreferrer'
-                                      className='text-blue-600 dark:text-blue-400 hover:underline'
-                                    >
-                                      {scrape.url}
-                                    </a>
-                                    <p className='mt-2 text-sm text-gray-600 dark:text-gray-300'>
-                                      {scrape.extractedContent}
-                                    </p>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
-                          )}
+                  {state.sourcesLog?.queries?.length ? (
+                    state.sourcesLog.queries.map(
+                      (query: SerpQueryResult, idx: number) => (
+                        <Accordion
+                          key={idx}
+                          type='single'
+                          collapsible
+                          className='ml-4 mb-4'
+                        >
+                          <AccordionItem value={`query-${idx}`}>
+                            <AccordionTrigger className='text-lg font-semibold'>
+                              {query.query} - {query.objective}
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              {/* Successfully scraped section */}
+                              {query.successfulScrapes.length > 0 && (
+                                <div className='mb-4'>
+                                  <h4 className='font-medium mb-2 text-green-600 dark:text-green-400'>
+                                    Successfully Scraped (
+                                    {query.successfulScrapes.length})
+                                  </h4>
+                                  <ol className='list-decimal ml-4 space-y-4'>
+                                    {query.successfulScrapes.map(
+                                      (
+                                        scrape: {
+                                          url: string;
+                                          extractedContent: string;
+                                        },
+                                        sIdx: number
+                                      ) => (
+                                        <li
+                                          key={sIdx}
+                                          className='text-gray-800 dark:text-gray-200'
+                                        >
+                                          <a
+                                            href={scrape.url}
+                                            target='_blank'
+                                            rel='noopener noreferrer'
+                                            className='text-blue-600 dark:text-blue-400 hover:underline'
+                                          >
+                                            {scrape.url}
+                                          </a>
+                                          <p className='mt-2 text-sm text-gray-600 dark:text-gray-300'>
+                                            {scrape.extractedContent}
+                                          </p>
+                                        </li>
+                                      )
+                                    )}
+                                  </ol>
+                                </div>
+                              )}
 
-                          {/* Failed scrapes section */}
-                          {query.failedScrapes.length > 0 && (
-                            <div>
-                              <h4 className='font-medium mb-2 text-red-500'>
-                                Failed to Scrape ({query.failedScrapes.length})
-                              </h4>
-                              <ul className='list-disc ml-4 space-y-2'>
-                                {query.failedScrapes.map((fail, fIdx) => (
-                                  <li
-                                    key={fIdx}
-                                    className='text-sm text-gray-500'
-                                  >
-                                    {fail.url} - {fail.error}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
-                  ))}
+                              {/* Failed scrapes section */}
+                              {query.failedScrapes.length > 0 && (
+                                <div>
+                                  <h4 className='font-medium mb-2 text-red-500'>
+                                    Failed to Scrape (
+                                    {query.failedScrapes.length})
+                                  </h4>
+                                  <ul className='list-disc ml-4 space-y-2'>
+                                    {query.failedScrapes.map(
+                                      (
+                                        fail: { url: string; error: string },
+                                        fIdx: number
+                                      ) => (
+                                        <li
+                                          key={fIdx}
+                                          className='text-sm text-gray-500'
+                                        >
+                                          {fail.url} - {fail.error}
+                                        </li>
+                                      )
+                                    )}
+                                  </ul>
+                                </div>
+                              )}
+                            </AccordionContent>
+                          </AccordionItem>
+                        </Accordion>
+                      )
+                    )
+                  ) : (
+                    <p className='text-gray-500 dark:text-gray-400'>
+                      No sources found.
+                    </p>
+                  )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
           )}
+        </div>
+      )}
+
+      {/* Status notifications */}
+      {status.loading && (
+        <div className='fixed top-4 right-4 z-50 flex flex-col gap-2'>
+          <div
+            className={`
+            bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4
+            border border-gray-200 dark:border-gray-700
+            animate-fade-in transition-all duration-300
+            flex items-center gap-3 min-w-[300px]
+          `}
+          >
+            <div className='flex-shrink-0'>
+              <Loader2 className='w-5 h-5 animate-spin text-[#007e81]' />
+            </div>
+            <div className='flex-1'>
+              <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                {status.message}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {status.complete && !status.loading && (
+        <div className='fixed top-4 right-4 z-50 flex flex-col gap-2'>
+          <div
+            className={`
+            bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4
+            border border-gray-200 dark:border-gray-700
+            animate-fade-in transition-all duration-300
+            flex items-center gap-3 min-w-[300px]
+          `}
+          >
+            <div className='flex-shrink-0'>
+              <CheckCircle className='w-5 h-5 text-green-500' />
+            </div>
+            <div className='flex-1'>
+              <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                {status.message}
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </main>
