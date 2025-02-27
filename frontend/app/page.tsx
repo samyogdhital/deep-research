@@ -512,8 +512,11 @@ export default function Home() {
 
   // Helper function to determine if sources should be shown
   const shouldShowSources = useMemo(() => {
-    return state.step === 'processing' || state.step === 'complete';
-  }, [state.step]);
+    return (
+      (state.step === 'processing' || state.step === 'complete') &&
+      state.generatedFollowUpQuestions.length > 0
+    );
+  }, [state.step, state.generatedFollowUpQuestions.length]);
 
   return (
     <main className='container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col'>
@@ -824,7 +827,7 @@ export default function Home() {
               >
                 <div className='flex items-start gap-4'>
                   <div className='flex-shrink-0 w-8 h-8 sticky top-0'>
-                    <span className='flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-medium'>
+                    <span className='flex items-center justify-center w-7 h-7 rounded-full bg-[#007e81] dark:bg-[#00676a] text-white font-medium text-xs'>
                       {idx + 1}
                     </span>
                   </div>
