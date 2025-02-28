@@ -14,7 +14,13 @@ interface SerpQuery {
   query: string;
   objective: string;
   query_rank: number;
-  successful_scraped_websites: ScrapedWebsite[];
+  successful_scraped_websites: Array<{
+    url: string;
+    title: string;
+    description: string;
+    isRelevant: number;
+    extracted_from_website_analyzer_agent: string[];
+  }>;
   failedWebsites: string[];
 }
 

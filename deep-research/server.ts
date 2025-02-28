@@ -29,34 +29,36 @@ app.use(express.json({
 
 // API Routes
 app.post('/api/research/questions', async (req: Request, res: Response): Promise<void> => {
-    const { prompt, followupQuestions } = req.body;
+    const { prompt = '', followupQuestions = 5 } = req.body;
     try {
-        if (!prompt) {
+        if (!prompt.trim()) {
             res.status(400).json({ error: 'Prompt is required' });
             return;
         }
 
-        // Start research process - emit first event
-        wsManager.handleResearchStart({
-            id: Date.now().toString(),
-            prompt,
-            status: 'collecting',
-            controller: new AbortController(),
-            cleanup: () => { }
-        });
+        // Initialize research in database first with a new report_id
+        const db = await ResearchDB.getInstance();
+        const report_id = await db.initializeResearch(prompt, 1, 1, followupQuestions);
 
+        // Generate follow-up questions
         const questions = await generateFollowUps({
             query: prompt,
             numQuestions: followupQuestions
         });
 
-        // Followups generated - emit second event
-        const tempId = Date.now().toString(); // Use temporary ID since we don't have a research ID yet
-        await wsManager.handleFollowupsGenerated(tempId);
-        res.json({ questions });
+        // Save the generated questions with empty answers
+        for (let i = 0; i < questions.length; i++) {
+            await db.addFollowUpQnA(report_id, {
+                id: i + 1,
+                question: questions[i] || '',  // Handle potential undefined
+                answer: ''  // Empty answer initially
+            });
+        }
+
+        // Return both questions and report_id
+        res.json({ questions, report_id });
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        wsManager.handleResearchError(new Error(errorMessage));
         res.status(500).json({
             error: 'Failed to analyze prompt',
             details: errorMessage
@@ -66,7 +68,7 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
 
 app.post('/api/research/start', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { initial_query, depth, breadth, followUpAnswers, followUps_num } = req.body;
+        const { initial_query, depth, breadth, followUpAnswers, followUps_num, report_id: provided_report_id } = req.body;
 
         // Validate required fields
         if (!initial_query?.trim()) {
@@ -80,26 +82,39 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             return;
         }
 
-        // Initialize research in database
         const db = await ResearchDB.getInstance();
-        const report_id = await db.initializeResearch(initial_query, depth, breadth, followUps_num);
+        let report_id: string;
 
-        // Save follow-up QnA
-        try {
-            for (const [question, answer] of Object.entries(followUpAnswers)) {
-                await db.addFollowUpQnA(report_id, {
-                    id: parseInt(question),
-                    question,
-                    answer: answer as string
-                });
+        if (provided_report_id) {
+            // Check if research exists
+            const existingResearch = await db.getResearchData(provided_report_id);
+            if (!existingResearch) {
+                res.status(404).json({ error: 'Research not found' });
+                return;
             }
-        } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            wsManager.handleResearchError(new Error(errorMessage));
-            throw error;
+            report_id = provided_report_id;
+
+            // Update research parameters
+            await db.updateResearchParameters(report_id, {
+                depth,
+                breadth,
+                followUps_num
+            });
+        } else {
+            // Initialize new research since no report_id was provided
+            report_id = await db.initializeResearch(initial_query, depth, breadth, followUps_num);
         }
 
-        // Setup research state
+        // Save follow-up QnA
+        for (const [question, answer] of Object.entries(followUpAnswers)) {
+            await db.addFollowUpQnA(report_id, {
+                id: parseInt(question),
+                question,
+                answer: answer as string
+            });
+        }
+
+        // Start research process
         const controller = new AbortController();
         const research: ResearchState = {
             id: report_id,
@@ -110,7 +125,6 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             cleanup: () => { }
         };
 
-        // Start research process
         await wsManager.handleResearchStart(research);
 
         const fullContext = `
@@ -143,8 +157,17 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
         await db.saveReport({
             report_id,
             title: report.title,
-            sections: report.sections,
-            citedUrls: report.citedUrls,
+            sections: report.sections.map(section => ({
+                rank: section.rank,
+                sectionHeading: section.sectionHeading,
+                content: section.content
+            })),
+            citedUrls: report.citedUrls.map((url, index) => ({
+                rank: index + 1,
+                url: url.url,
+                title: url.title,
+                oneValueablePoint: url.oneValueablePoint
+            })),
             isVisited: false,
             timestamp: Date.now()
         });
@@ -165,8 +188,8 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
 
 app.get('/api/reports', async (req: Request, res: Response) => {
     const db = await ResearchDB.getInstance();
-    const reports = await db.getAllReports();
-    res.json(reports);
+    const researches = await db.getAllReports();
+    res.json(researches);
 });
 
 // Get a single report by ID
@@ -178,14 +201,14 @@ app.get('/api/reports/:id', async (req: Request, res: Response) => {
     }
 
     const db = await ResearchDB.getInstance();
-    const report = await db.getResearchData(id);
+    const research = await db.getResearchData(id);
 
-    if (!report?.report) {
-        res.status(404).json({ error: 'Report not found' });
+    if (!research) {
+        res.status(404).json({ error: 'Research not found' });
         return;
     }
 
-    res.json(report.report);
+    res.json(research);
 });
 
 // Mark a report as visited
