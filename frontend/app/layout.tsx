@@ -22,7 +22,7 @@ export default async function RootLayout({
 }) {
   return (
     <html lang='en' className={`${inter.variable}`} suppressHydrationWarning>
-      <body suppressHydrationWarning className='font-inter dark:bg-[#191a1a]'>
+      <body suppressHydrationWarning className='font-inter dark:bg-bg_color'>
         <ThemeProvider
           attribute='class'
           defaultTheme='system'
