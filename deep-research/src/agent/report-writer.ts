@@ -111,7 +111,8 @@ export class ReportWriter {
         };
 
         const { response } = await generateObject({
-            system: `You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:
+            system: `
+    You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:
       - Write in clear markdown format
       - Every section must have proper markdown headers (# for H1, ## for H2, ### for H3)
       - Every statement must have a citation linking to citedUrls using [rank](url) format
@@ -119,25 +120,24 @@ export class ReportWriter {
       - Each cited URL must have one valuable point extracted from it
       - Write in highly technical and detailed manner
       - Include all facts, figures, and technical specifications
-      - Organize content into proper sections with appropriate ranks`,
-            prompt: `Write a comprehensive technical report using these research findings:
+      - Organize content into proper sections with appropriate ranks
+`,
+            prompt: `
+    Write a comprehensive technical report using these research findings:
 
-Research Context: ${prompt}
+    Research Context: ${prompt}
 
-Research Findings:
-${processedLearnings.map((l, i) => `
-Source ${i + 1}: ${l.sourceUrl}
-Content: ${l.content}
-Evidence: ${l.sourceText}
-`).join('\n\n')}
+    Research Findings:
+    ${processedLearnings.map((l, i) => `
+    Source ${i + 1}: ${l.sourceUrl}
+    Content: ${l.content}
+    Evidence: ${l.sourceText}
+    `).join('\n\n')}
 
-Format Requirements:
-1. Use proper markdown headers (#, ##)
-2. Every statement must end with a citation in format [n](url)
-3. Add a References section at the end
-4. Ensure each citation is a clickable link
-5. Be highly technical and detailed
-6. Use clear section organization`,
+    Absolute Requirements:
+    - Be highly technical and detailed. Be as technically detailed as possible answering every sinlge precise question the user has asked.
+    - You don't have to explain everything jargons, write final report in a long and highly technical   comprehensive way.
+`,
             model: process.env.REPORT_WRITING_MODEL as string,
             generationConfig: {
                 responseSchema: reportSchema

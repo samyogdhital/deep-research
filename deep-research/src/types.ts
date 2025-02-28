@@ -1,4 +1,5 @@
 import { TrackedLearning } from './agent/report-writer';
+import { WebSocketManager } from './websocket';
 
 export interface ScrapedSourceInfo {
     url: string;
@@ -90,14 +91,11 @@ export interface DeepResearchOptions {
     depth: number;
     breadth: number;
     signal?: AbortSignal;
-    onProgress?: (progress: ResearchProgress) => void;
-    onSourceUpdate?: (data: { query: string; url: string; content: string }) => void;
-    onWebsiteAnalysis?: (queryRank: number, website: WebsiteResult) => void;
-    onInformationCrunching?: (crunchedData: CrunchedInfo) => void;
     researchId: string;
     parentTokenCount?: number;
     parentFindings?: TrackedLearning[];
     currentDepth?: number;
+    wsManager?: WebSocketManager;
 }
 
 export interface WebsiteResult {

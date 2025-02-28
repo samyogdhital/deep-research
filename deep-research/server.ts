@@ -17,7 +17,10 @@ const httpServer = createServer(app);
 const wsManager = new WebSocketManager(httpServer, process.env.FRONTEND_BASE_URL!);
 
 // Express middleware
-app.use(cors({ origin: process.env.FRONTEND_BASE_URL, credentials: true }));
+app.use(cors({
+    origin: "*",// process.env.FRONTEND_BASE_URL,
+    credentials: true
+}));
 app.use(express.json({
     strict: true,
     limit: '10mb',
@@ -33,12 +36,23 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
             return;
         }
 
+        // Start research process - emit first event
+        wsManager.handleResearchStart({
+            id: Date.now().toString(),
+            prompt,
+            status: 'collecting',
+            controller: new AbortController(),
+            cleanup: () => { }
+        });
+
         const questions = await generateFollowUps({
             query: prompt,
             numQuestions: followupQuestions
         });
 
-        wsManager.updateResearchPhase('understanding');
+        // Followups generated - emit second event
+        const tempId = Date.now().toString(); // Use temporary ID since we don't have a research ID yet
+        await wsManager.handleFollowupsGenerated(tempId);
         res.json({ questions });
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -97,7 +111,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
         };
 
         // Start research process
-        wsManager.handleResearchStart(research);
+        await wsManager.handleResearchStart(research);
 
         const fullContext = `
 Initial Query: ${initial_query}
@@ -109,28 +123,16 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
             depth,
             breadth,
             signal: controller.signal,
-            onProgress: (progress) => {
-                wsManager.updateResearchPhase('gathering');
-            },
-            onSourceUpdate: (queryData: QueryData) => {
-                wsManager.updateSourceProgress(queryData);
-            },
-            onWebsiteAnalysis: (queryRank: number, website: WebsiteResult) => {
-                wsManager.updateWebsiteAnalysis(queryRank, website);
-            },
-            onInformationCrunching: (crunchedData: CrunchedInfo) => {
-                wsManager.updateResearchPhase('crunching');
-                wsManager.updateInformationCrunching(crunchedData);
-            },
-            researchId: report_id
-        } as DeepResearchOptions);
+            researchId: report_id,
+            wsManager
+        });
 
         if (!learnings?.length) {
             throw new Error('Research completed but no results were found.');
         }
 
         // Generate report
-        wsManager.updateResearchPhase('writing');
+        await wsManager.handleReportWritingStart(report_id);
         const reportWriter = new ReportWriter();
         const report = await reportWriter.generateReport({
             prompt: initial_query,
@@ -148,7 +150,7 @@ ${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n
         });
 
         // Complete research
-        wsManager.handleResearchComplete(report_id, report.title);
+        await wsManager.handleReportWritingComplete(report_id);
         res.json(await db.getResearchData(report_id));
 
     } catch (error: unknown) {

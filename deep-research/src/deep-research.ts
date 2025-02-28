@@ -7,6 +7,7 @@ import { Firecrawl } from '../content-extraction/firecrawl';
 import { type AgentResult, type ResearchProgress, type ResearchResult, type ScrapedContent, type SearxResult } from './types';
 import { encode } from 'gpt-tokenizer';
 import { ResearchDB } from './db';
+import { WebSocketManager } from './websocket';
 
 // Define types for MVP
 interface SerpQuery {
@@ -44,24 +45,22 @@ export async function deepResearch({
   query_to_find_websites,
   breadth,
   depth,
-  onProgress,
-  onSourceUpdate,
   signal,
   researchId,
   parentTokenCount = 0,
   parentFindings = [],
-  currentDepth = 1
+  currentDepth = 1,
+  wsManager
 }: {
   query_to_find_websites: string;
   breadth: number;
   depth: number;
-  onProgress?: (progress: ResearchProgress) => void;
-  onSourceUpdate?: (data: { query: string; url: string; content: string }) => void;
   signal?: AbortSignal;
   researchId: string;
   parentTokenCount?: number;
   parentFindings?: TrackedLearning[];
   currentDepth?: number;
+  wsManager?: WebSocketManager;
 }): Promise<ResearchResult> {
   // Input validation
   if (!query_to_find_websites?.trim()) throw new Error('Query is required');
@@ -87,17 +86,29 @@ export async function deepResearch({
     for (const query of queries) {
       if (signal?.aborted) throw new Error('Research aborted');
 
+      // Save SERP query to database first
+      const serpQuery: SerpQuery = {
+        query: query.query,
+        objective: query.objective,
+        query_rank: queries.indexOf(query) + 1,
+        successful_scraped_websites: [],
+        failedWebsites: []
+      };
+      await db.addSerpQuery(researchId, serpQuery);
+
+      // Emit new SERP query event after DB save
+      if (wsManager) {
+        await wsManager.handleNewSerpQuery(researchId);
+      }
+
       // Search and scrape websites
       const searchResults: SearxResult[] = await searxng.search(query.query);
-
-      // Limit results per query for MVP
       const limitedResults = searchResults.slice(0, MAX_RESULTS_PER_QUERY);
 
-      // Scrape content using Firecrawl
       console.log(`Scraping ${limitedResults.length} URLs for query "${query.query}"`);
       const scrapedContents = await firecrawl.scrapeWebsites(limitedResults.map(r => r.url));
 
-      // Map scraped content back to search results
+      // Map scraped content and update DB before emitting events
       const successfulScrapes: EnhancedSearchResult[] = scrapedContents.map(sc => {
         const searchResult = limitedResults.find(r => r.url === sc.url);
         return {
@@ -106,48 +117,30 @@ export async function deepResearch({
         };
       });
 
+      // Handle failed scrapes
       const scrapeFails = limitedResults
         .filter(r => !scrapedContents.some(sc => sc.url === r.url))
         .map(r => r.url);
 
-      console.log(`Query "${query.query}" at depth ${currentDepth}:`, {
-        totalResults: searchResults.length,
-        processedResults: limitedResults.length,
-        successfulScrapes: successfulScrapes.length,
-        failedScrapes: scrapeFails.length
-      });
-
       failedUrls.push(...scrapeFails);
 
-      // Save SERP query results to database
-      const serpQuery: SerpQuery = {
-        query: query.query,
-        objective: query.objective,
-        query_rank: queries.indexOf(query) + 1,
-        successful_scraped_websites: [],
-        failedWebsites: scrapeFails
-      };
-      await db.addSerpQuery(researchId, serpQuery);
-      // Save failed URLs immediately
+      // Update DB with failed URLs
       await db.updateSerpQueryResults(researchId, serpQuery.query_rank, [], scrapeFails);
+
+      // Emit website scraped events after DB update
+      if (wsManager) {
+        for (const content of scrapedContents) {
+          await wsManager.handleWebsiteScraped(researchId);
+        }
+      }
 
       // Process successful scrapes
       const cruncher = new InformationCruncher(query.objective);
       let queryResults: TrackedLearning[] = [];
       let queryWords = 0;
 
-      // Filter highly relevant websites (score >= 7)
-      const relevantScrapes = await Promise.all(successfulScrapes.map(async (content) => {
-        const analysis = await websiteAnalyzer.analyzeContent({
-          url: content.url,
-          markdown: content.markdown
-        }, query.objective);
-        return analysis?.meetsObjective ? content : null;
-      }));
-
-      const filteredScrapes = relevantScrapes.filter((content): content is EnhancedSearchResult => content !== null);
-
-      for (const content of filteredScrapes) {
+      // Analyze websites
+      for (const content of successfulScrapes) {
         try {
           const analysis = await websiteAnalyzer.analyzeContent({
             url: content.url,
@@ -155,9 +148,7 @@ export async function deepResearch({
           }, query.objective);
 
           if (analysis?.meetsObjective) {
-            console.log(`Found relevant content at ${content.url}`);
-
-            // Add to database
+            // Save to DB first
             const scrapedWebsite: ScrapedWebsite = {
               url: content.url,
               title: content.title,
@@ -168,24 +159,28 @@ export async function deepResearch({
             serpQuery.successful_scraped_websites.push(scrapedWebsite);
             await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
 
+            // Emit website analysis event after DB update
+            if (wsManager) {
+              await wsManager.handleWebsiteAnalysis(researchId);
+            }
+
             // Track words and content
             const words = analysis.content.split(/\s+/).length;
             queryWords += words;
             totalWordsAcrossQueries += words;
 
-            const learning = {
+            queryResults.push({
               content: analysis.content,
               sourceUrl: content.url,
               sourceText: analysis.sourceText
-            };
-            queryResults.push(learning);
+            });
 
-            // Log word counts
-            console.log(`Word counts - Query: ${queryWords}, Total: ${totalWordsAcrossQueries}`);
-
-            // Crunch information if total word limit reached
+            // Crunch information if needed
             if (totalWordsAcrossQueries >= MAX_WORDS) {
-              console.log(`Word limit reached (${totalWordsAcrossQueries}), crunching information...`);
+              if (wsManager) {
+                await wsManager.handleCrunchingStart(researchId);
+              }
+
               const crunchedInfo = await cruncher.addContent(
                 queryResults.map(r => r.content).join('\n'),
                 content.url,
@@ -193,7 +188,7 @@ export async function deepResearch({
               );
 
               if (crunchedInfo) {
-                console.log('Information crunched successfully');
+                // Save to DB first
                 const crunchingResult: InformationCrunchingResult = {
                   query_rank: serpQuery.query_rank,
                   crunched_information: [{
@@ -202,9 +197,13 @@ export async function deepResearch({
                   }]
                 };
                 await db.addCrunchedInformation(researchId, crunchingResult);
-                crunchedResults.set(serpQuery.query_rank, crunchedInfo);
 
-                // Update results with crunched information
+                // Emit crunching complete event after DB save
+                if (wsManager) {
+                  await wsManager.handleCrunchingComplete(researchId);
+                }
+
+                // Update results
                 results = results.filter(r => !queryResults.some(qr => qr.sourceUrl === r.sourceUrl));
                 results.push({
                   content: crunchedInfo.content,
@@ -212,38 +211,14 @@ export async function deepResearch({
                   sourceText: queryResults[0]?.sourceText || ''
                 });
 
-                // Reset query counters but maintain total
                 queryWords = 0;
                 queryResults = [];
               }
-            }
-
-            // Update progress
-            if (onProgress) {
-              onProgress({
-                currentDepth,
-                totalDepth: depth,
-                currentBreadth: queries.indexOf(query) + 1,
-                totalBreadth: queries.length,
-                currentQuery: query.query,
-                totalQueries: queries.length,
-                completedQueries: queries.indexOf(query),
-                analyzedWebsites: results.length
-              });
-            }
-
-            if (onSourceUpdate) {
-              onSourceUpdate({
-                query: query.query,
-                url: content.url,
-                content: analysis.content
-              });
             }
           }
         } catch (error) {
           console.error(`Failed to analyze ${content.url}:`, error);
           failedUrls.push(content.url);
-          // Save failed URL immediately
           serpQuery.failedWebsites.push(content.url);
           await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
           continue;
@@ -283,13 +258,12 @@ export async function deepResearch({
           query_to_find_websites: contextString,
           breadth: nextBreadth,
           depth,
-          onProgress,
-          onSourceUpdate,
           signal,
           researchId,
           parentTokenCount: totalTokenCount,
           parentFindings: results,
-          currentDepth: currentDepth + 1
+          currentDepth: currentDepth + 1,
+          wsManager
         });
 
         results.push(...deeperResults.learnings);
