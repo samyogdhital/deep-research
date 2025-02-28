@@ -27,6 +27,7 @@ import { useResearchStore } from '@/lib/research-store';
 import type { SerpQueryResult, ResearchSourcesLog } from '@/types/research';
 import { cn } from '@/lib/utils';
 import { ArrowBigRight } from 'lucide-react';
+import { handleResearchEvent } from '@/lib/socket-handlers';
 
 interface Report {
   title: string;
@@ -84,31 +85,24 @@ export default function Home() {
   const [currentResearchId, setCurrentResearchId] = useState<string | null>(
     null
   );
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [accordionValue, setAccordionValue] = useState<string | undefined>(
+    undefined
+  );
 
   // Remove unused state
   const [showDepthInput, setShowDepthInput] = useState(false);
   const [showBreadthInput, setShowBreadthInput] = useState(false);
   const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
 
-  // Add ref for textarea
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const [accordionValue, setAccordionValue] = useState<string | undefined>(
-    undefined
-  );
-
   // Handle accordion auto-expand/collapse sequence
   useEffect(() => {
     if (state.step === 'processing') {
-      // Initially collapsed
       setAccordionValue(undefined);
-
-      // Expand after 200ms
       const expandTimeout = setTimeout(() => {
         setAccordionValue('logs');
       }, 200);
 
-      // Collapse when follow-up questions are ready
       if (state.generatedFollowUpQuestions.length > 0) {
         setAccordionValue(undefined);
       }
@@ -117,36 +111,58 @@ export default function Home() {
     }
   }, [state.step, state.generatedFollowUpQuestions.length]);
 
+  // Single WebSocket setup effect
   useEffect(() => {
     const newSocket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
       withCredentials: true,
       transports: ['websocket'],
     });
 
-    newSocket.on('log', (message: string) => {
-      setState((prev) => ({
-        ...prev,
-        logs: [...prev.logs, message],
-      }));
-
-      if (message.includes('Research terminated by user')) {
-        setState((prev) => ({ ...prev, step: 'input' }));
-      }
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
+      newSocket.emit('request-ongoing-research');
     });
 
-    newSocket.on('sources-update', (sourcesLog: ResearchSourcesLog) => {
+    newSocket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
       setState((prev) => ({
         ...prev,
-        sourcesLog,
+        logs: [...prev.logs, `Connection error: ${error.message}`],
       }));
+    });
+
+    // Use the handleResearchEvent for all research-related events
+    const researchEvents = [
+      'generating_followups',
+      'followups_generated',
+      'new_serp_query',
+      'new_website_successfully_scrape',
+      'website_analyzer_agent',
+      'crunching_serp_query',
+      'crunched_information',
+      'report_writing_start',
+      'report_writing_successfull',
+      'research_error',
+    ];
+
+    researchEvents.forEach((event) => {
+      newSocket.on(event, (data) => handleResearchEvent(event, data));
+    });
+
+    // Handle research completion separately as it requires navigation
+    newSocket.on('research-completed', async ({ id, researchId }) => {
+      useResearchStore.getState().removeResearch(researchId);
+      if (researchId === currentResearchId) {
+        setCurrentResearchId(null);
+        router.push(`/report/${id}`);
+      }
     });
 
     setSocket(newSocket);
 
     return () => {
       console.log('Cleaning up socket connection');
-      newSocket.off('research-completed');
-      newSocket.close();
+      newSocket.disconnect();
     };
   }, [router, currentResearchId]);
 
@@ -195,67 +211,6 @@ export default function Home() {
       setState((prev) => ({ ...prev, step: 'input' }));
     }
   }, [socket]);
-
-  useEffect(() => {
-    const newSocket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
-      withCredentials: true,
-      transports: ['websocket'],
-    });
-
-    setSocket(newSocket);
-
-    // Add all socket event listeners here
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-      setState((prev) => ({
-        ...prev,
-        logs: [...prev.logs],
-      }));
-    });
-
-    // Modified research-completed handler to be simpler
-    newSocket.on('research-completed', async ({ id, researchId }) => {
-      useResearchStore.getState().removeResearch(researchId);
-
-      if (researchId === currentResearchId) {
-        setCurrentResearchId(null);
-        router.push(`/report/${id}`);
-      }
-    });
-
-    newSocket.on('progress', (data: any) => {
-      console.log('Received progress:', data);
-      setState((prev) => ({
-        ...prev,
-        logs: [...prev.logs, `Progress update: ${JSON.stringify(data)}`],
-      }));
-    });
-
-    newSocket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-      setState((prev) => ({
-        ...prev,
-        logs: [...prev.logs, `Connection error: ${error.message}`],
-      }));
-    });
-
-    // Update the research phase handler
-    newSocket.on('research-phase', (phase: ResearchPhase) => {
-      setState((prev) => ({
-        ...prev,
-        step: phase,
-      }));
-    });
-
-    // Request initial sources data
-    newSocket.emit('request-sources');
-
-    return () => {
-      console.log('Cleaning up socket connection');
-      newSocket.off('research-completed');
-      newSocket.close();
-    };
-  }, [router, currentResearchId]); // Add router and currentResearchId to dependencies
 
   // Add click outside handler
   useEffect(() => {
@@ -309,12 +264,11 @@ export default function Home() {
     }
 
     try {
-      // Reset state before starting
       setState((prev) => ({
         ...prev,
         step: 'processing',
         generatedFollowUpQuestions: [],
-        followUps_QnA: [], // Ensure this is always an array
+        followUps_QnA: [],
         logs: [...prev.logs, 'Generating follow-up questions...'],
       }));
 
@@ -336,13 +290,10 @@ export default function Home() {
       }
 
       const data = await response.json();
-
-      // Validate data structure
       if (!data || !data.questions || !Array.isArray(data.questions)) {
         throw new Error('Invalid response format from server');
       }
 
-      // Ensure questions is an array and map it safely
       const questions = Array.isArray(data.questions) ? data.questions : [];
       const followUps = questions.map((q: string, idx: number) => ({
         id: idx + 1,
@@ -350,7 +301,6 @@ export default function Home() {
         answer: '',
       }));
 
-      // Update state with generated questions and move to follow-up step
       setState((prev) => ({
         ...prev,
         step: 'follow-up',
@@ -359,17 +309,14 @@ export default function Home() {
         logs: [...prev.logs, 'Follow-up questions generated successfully'],
       }));
 
-      // Collapse accordion when questions appear
       setAccordionValue(undefined);
     } catch (error) {
       console.error('Error:', error);
-
-      // Reset to initial state on error, ensuring arrays are empty but defined
       setState((prev) => ({
         ...prev,
         step: 'input',
         generatedFollowUpQuestions: [],
-        followUps_QnA: [], // Always reset to empty array, never undefined
+        followUps_QnA: [],
         logs: [
           ...prev.logs,
           `Error: ${
@@ -383,7 +330,6 @@ export default function Home() {
   };
 
   const handleResearchStart = async () => {
-    // Validate all questions are answered
     if (state.followUps_QnA.some((qa) => !qa.answer.trim())) {
       alert('Please answer all follow-up questions');
       return;
@@ -399,15 +345,14 @@ export default function Home() {
         logs: [...prev.logs, 'Starting deep research...'],
       }));
 
-      // Add to ongoing research with proper type
       useResearchStore.getState().addResearch({
         id: researchId,
+        report_id: researchId,
         prompt: state.initialPrompt,
         startTime: Date.now(),
         status: 'collecting',
       });
 
-      // Format follow-up answers to match backend schema
       const followUpAnswers = state.followUps_QnA.reduce(
         (acc: Record<string, string>, curr) => {
           acc[curr.id.toString()] = curr.answer;
@@ -439,16 +384,6 @@ export default function Home() {
         throw new Error(errorData.details || 'Research failed to start');
       }
 
-      const data = await response.json();
-
-      // Update research store with report title
-      if (data.report?.title) {
-        useResearchStore.getState().updateResearch(researchId, {
-          status: 'analyzing',
-        });
-      }
-
-      // Add success log
       setState((prev) => ({
         ...prev,
         logs: [
@@ -457,12 +392,9 @@ export default function Home() {
         ],
       }));
 
-      // Redirect to report page using report_id
       router.push(`/report/${researchId}`);
     } catch (error) {
       console.error('Research error:', error);
-
-      // Update research store to remove failed research
       if (currentResearchId) {
         useResearchStore.getState().removeResearch(currentResearchId);
       }
@@ -480,13 +412,11 @@ export default function Home() {
     }
   };
 
-  // Update answer handling
   const handleAnswerChange = (questionId: number, answer: string) => {
     setState((prev) => ({
       ...prev,
-      followUps_QnA: prev.followUps_QnA.map(
-        (qa: { id: number; question: string; answer: string }) =>
-          qa.id === questionId ? { ...qa, answer } : qa
+      followUps_QnA: prev.followUps_QnA.map((qa) =>
+        qa.id === questionId ? { ...qa, answer } : qa
       ),
     }));
   };

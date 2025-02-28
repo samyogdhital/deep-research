@@ -1,22 +1,22 @@
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
+import { ResearchData } from '@deep-research/db/schema';
 
 export const socket = io(process.env.NEXT_PUBLIC_API_BASE_URL as string, {
     withCredentials: true,
     transports: ['websocket']
 });
 
-export interface OngoingResearch {
+export interface OngoingResearch extends ResearchData {
     id: string;
-    prompt: string;
     startTime: number;
-    status: 'collecting' | 'analyzing' | 'generating';
+    status: 'collecting' | 'analyzing' | 'generating' | 'complete' | 'failed';
 }
 
 interface ResearchStore {
-    reports: Report[];
+    reports: ResearchData[];
     ongoingResearch: OngoingResearch[];
-    setReports: (reports: Report[]) => void;
+    setReports: (reports: ResearchData[]) => void;
     setOngoingResearch: (research: OngoingResearch[]) => void;
     addResearch: (research: OngoingResearch) => void;
     removeResearch: (id: string) => void;

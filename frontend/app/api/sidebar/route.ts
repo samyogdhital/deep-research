@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const { expanded } = await request.json()
 
     // Set cookie with a long expiration (1 year)
-    cookies().set(SIDEBAR_STATE, String(expanded), {
+    (await cookies()).set(SIDEBAR_STATE, String(expanded), {
         expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
         path: '/'
     })

@@ -1,4 +1,7 @@
 // Remove IndexedDB related imports and interfaces
+
+import { ResearchData } from '../../deep-research/src/db/schema';
+
 export async function saveReport(report: {
     report_title: string;
     report: string;
@@ -33,11 +36,9 @@ export async function saveReport(report: {
     }
 }
 
-// Simplified db.ts - only handles API calls, no revalidation logic
-export async function getReport(id: string) {
+export async function getReport(id: string): Promise<ResearchData | null> {
     try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}`);
-
         if (!response.ok) {
             // For 404, return null instead of throwing
             if (response.status === 404) {
@@ -48,8 +49,8 @@ export async function getReport(id: string) {
             throw new Error(errorData.details || 'Failed to fetch report');
         }
 
-        const data = await response.json();
-        return data;
+        return await response.json();
+
     } catch (error) {
         // Log error but don't throw
         console.error('Get report error:', error);
@@ -57,7 +58,7 @@ export async function getReport(id: string) {
     }
 }
 
-export async function getAllReports() {
+export async function getAllReports(): Promise<ResearchData[]> {
     try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
             next: { tags: ['reports'] }
@@ -71,17 +72,7 @@ export async function getAllReports() {
         }
 
         const data = await response.json();
-
-        // Transform the data to match ReportsType
-        return data.map((report: any) => ({
-            id: report.report_id,
-            report_title: report.title,
-            report: report.sections.map((section: any) =>
-                `## ${section.sectionHeading}\n\n${section.content}`
-            ).join('\n\n'),
-            timestamp: report.timestamp || Date.now(),
-            isVisited: report.isVisited || false
-        }));
+        return data;
     } catch (error) {
         console.error('Get all reports error:', error);
         return [];
@@ -112,4 +103,24 @@ export async function clearAllReports() {
     });
     if (!response.ok) throw new Error('Failed to clear reports');
     return response.json();
+}
+
+export async function markReportAsVisited(id: string) {
+    try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}/visit`, {
+            method: 'PATCH'
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                return false;
+            }
+            throw new Error('Failed to mark report as visited');
+        }
+
+        return true;
+    } catch (error) {
+        console.error('Mark report as visited error:', error);
+        return false;
+    }
 }

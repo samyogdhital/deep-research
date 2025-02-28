@@ -21,28 +21,32 @@ import {
 import { Button } from '@/components/ui/button';
 import { updateReportTitle } from '@/lib/db';
 import { deleteReportAction } from '@/lib/server-actions/reports';
-import { useResearchStore } from '@/lib/research-store'; // Import the store
+import { useResearchStore } from '@/lib/research-store';
+import type { ResearchData } from '@deep-research/db/schema';
 
-const truncate = (str: string): string =>
-  str.length > 24 ? str.slice(0, 26) + '...' : str;
+const truncate = (str: string | undefined | null): string => {
+  if (!str) return 'Untitled Research';
+  return str.length > 24 ? str.slice(0, 26) + '...' : str;
+};
 
-interface Report {
-  id: string;
-  report_title: string;
+// UI-specific report type that matches our display needs
+type UIReport = {
+  report_id: string;
+  title: string;
   timestamp: number;
-  isVisited?: boolean;
-}
+  isVisited: boolean;
+};
 
 interface CategoryReports {
-  today: Report[];
-  week: Report[];
-  month: Report[];
+  today: UIReport[];
+  week: UIReport[];
+  month: UIReport[];
 }
 
 export function ReportsList({
   reports: initialReports,
 }: {
-  reports: Report[];
+  reports: ResearchData[];
 }) {
   const router = useRouter();
   const params = useParams();
@@ -57,9 +61,21 @@ export function ReportsList({
   });
   const [report_ID, setReport_ID] = useState<string | null>(null);
 
+  // Transform ResearchData to UIReport format
+  const transformReports = (data: ResearchData[]): UIReport[] => {
+    return data
+      .filter((r) => r.report) // Only include items with report
+      .map((r) => ({
+        report_id: r.report_id,
+        title: r.report?.title || 'Untitled Research',
+        isVisited: r.report?.isVisited || false,
+        timestamp: r.report?.timestamp || Date.now(),
+      }));
+  };
+
   const categorizeReports = (
-    reports: Report[]
-  ): CategoryReports & { unread: Report[] } => {
+    reports: UIReport[]
+  ): CategoryReports & { unread: UIReport[] } => {
     const now = Date.now();
     const dayInMs = 86400000; // 24 hours
     const weekInMs = dayInMs * 7;
@@ -67,16 +83,16 @@ export function ReportsList({
 
     // First separate unread reports
     const unreadReports = reports.filter((r) => !r.isVisited);
-    const unreadIds = new Set(unreadReports.map((r) => r.id));
+    const unreadIds = new Set(unreadReports.map((r) => r.report_id));
 
     // Then categorize remaining (read) reports
     // Only process reports that aren't unread
     const readReports = reports.filter(
-      (r) => r.isVisited && !unreadIds.has(r.id)
+      (r) => r.isVisited && !unreadIds.has(r.report_id)
     );
 
     const categories = readReports.reduce(
-      (acc: CategoryReports & { unread: Report[] }, report) => {
+      (acc: CategoryReports & { unread: UIReport[] }, report) => {
         const diff = now - report.timestamp;
 
         if (diff < dayInMs) {
@@ -101,11 +117,11 @@ export function ReportsList({
     };
   };
 
-  const handleRename = (report: Report) => {
+  const handleRename = (report: UIReport) => {
     setEditing({
-      id: report.id,
-      value: report.report_title,
-      originalValue: report.report_title,
+      id: report.report_id,
+      value: report.title,
+      originalValue: report.title,
     });
   };
 
@@ -149,13 +165,13 @@ export function ReportsList({
 
   const handleKeyDown = async (
     e: React.KeyboardEvent<HTMLInputElement>,
-    report: Report
+    report: UIReport
   ) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (editing.value.trim()) {
         try {
-          await updateReportTitle(report.id, editing.value);
+          await updateReportTitle(report.report_id, editing.value);
           router.refresh();
         } catch (err) {
           console.error('Failed to rename report:', err);
@@ -169,24 +185,24 @@ export function ReportsList({
     }
   };
 
-  const renderReportItem = (report: Report) => (
+  const renderReportItem = (report: UIReport) => (
     <Link
-      key={report.id}
-      href={`/report/${report.id}`}
+      key={report.report_id}
+      href={`/report/${report.report_id}`}
       className={`group block px-2 py-1.5 rounded transition-colors relative
                 ${
-                  params.slug === report.id
+                  params.slug === report.report_id
                     ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
                     : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
       onClick={(e) => {
-        if (editing.id === report.id) {
+        if (editing.id === report.report_id) {
           e.preventDefault();
         }
       }}
     >
       <div className='flex items-center min-h-[24px] relative'>
-        {editing.id === report.id ? (
+        {editing.id === report.report_id ? (
           <input
             type='text'
             value={editing.value}
@@ -202,7 +218,7 @@ export function ReportsList({
             {/* Text container that stays within Link width */}
             <div className='w-full relative'>
               <span className='block text-sm leading-6 whitespace-nowrap overflow-hidden'>
-                {truncate(report.report_title) || 'Untitled Research'}
+                {truncate(report.title) || 'Untitled Research'}
               </span>
 
               {/* Menu button - no permanent ellipsis */}
@@ -215,7 +231,8 @@ export function ReportsList({
                                                 opacity-0 group-hover:opacity-100
                                                 p-1.5 rounded-sm transition-all duration-200
                                                 ${
-                                                  params.slug === report.id
+                                                  params.slug ===
+                                                  report.report_id
                                                     ? 'bg-[#006669] text-white'
                                                     : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                                 }
@@ -239,7 +256,7 @@ export function ReportsList({
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className='flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2'
-                      onClick={() => setReport_ID(report.id)}
+                      onClick={() => setReport_ID(report.report_id)}
                     >
                       <FiTrash2 className='w-4 h-4' />
                       Delete
@@ -257,8 +274,10 @@ export function ReportsList({
   // Get reports from store but use initialReports as fallback
   const storeReports = useResearchStore((state) => state.reports);
 
-  // Use initial server data first, then use store data when available
-  const reports = storeReports.length ? storeReports : initialReports;
+  // Transform the reports to match our UI format
+  const reports = storeReports.length
+    ? transformReports(storeReports)
+    : transformReports(initialReports);
 
   // Sync to store after render
   useEffect(() => {

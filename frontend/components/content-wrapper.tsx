@@ -1,14 +1,14 @@
 'use client';
 import { ClientSidebar } from './sidebar/client-sidebar';
-import { ReportsType } from './layout-wrapper';
 import React from 'react';
+import { ResearchData } from '@deep-research/db/schema';
 
 export default function ContentWrapper({
   reports,
   isExpanded: initialExpanded,
   children,
 }: {
-  reports: ReportsType;
+  reports: ResearchData[];
   isExpanded: boolean;
   children: React.ReactNode;
 }) {
