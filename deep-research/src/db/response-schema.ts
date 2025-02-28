@@ -3,8 +3,9 @@
 // Every step we do on the backend will be saved on the db not once but progressively, every step. And on the frontend as well through websockets. 
 
 
-
-const finalschema = {
+// This below is the exact schema of database. We can't change this even slighly. The logic and the rational of having each keys and values is also explaind below.
+const final_database_schema = {
+    // Make sure you iniitalize the report_id with a random uuid when the '/api/research/questions' route is called. We initalize the report_id there. And say for some reason some is directly called '/api/research/start' without calling '/api/research/questions' first, then also make sure you iniitalize the report_id '/api/research/start' as well. We need to check when anyone hits '/api/research/start'. If `report_id` is sent then we do db update and all for that report_id. If not present then we iniitalize the report_id there and then do db update. And since we are returing the whole db data for that report_id when the api resolves the user will know the report_id eventhough he/she forget to give it to the api initially.
     report_id: "asdf1234-asdfasdf123-asdfas123-asdf123", //"Unique identifyer for this whole research, this value will be set when we start the deep research only not before that.",
     initial_query: "User's initial detailed query that user gives us.",
     depth: 1, // This value must be between 1 - 10. User will give this value as well. This defines how much deep we have to go to in particular topic taking pervious learnings into considerations.
