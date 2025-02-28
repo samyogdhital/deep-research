@@ -44,7 +44,7 @@ interface EnhancedSearchResult extends SearxResult, ScrapedContent {
   description?: string;
 }
 
-const MAX_RESULTS_PER_QUERY = 1; // Maximum number of results to process per query for MVP
+const MAX_RESULTS_PER_QUERY = 3; // Maximum number of results to process per query for MVP
 const MAX_WORDS = 50000; // Maximum words before crunching
 
 export async function deepResearch({

@@ -1,40 +1,4 @@
-// Remove IndexedDB related imports and interfaces
-
-import { ResearchData } from '../../deep-research/src/db/schema';
-
-export async function saveReport(report: {
-    report_title: string;
-    report: string;
-    sourcesLog: any;
-}) {
-    if (!report.report_title?.trim() || !report.report?.trim()) {
-        console.error('Invalid report data:', report);
-        throw new Error('Invalid report data: Missing title or content');
-    }
-
-    try {
-        // Only save to backend
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/save`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(report)
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.details || 'Failed to save report');
-        }
-
-        const data = await response.json();
-        return data.id;
-    } catch (error) {
-        console.error('Save report error:', error);
-        throw new Error('Failed to save report');
-    }
-}
+import { ResearchData } from '@deep-research/db/schema';
 
 export async function getReport(id: string): Promise<ResearchData | null> {
     try {

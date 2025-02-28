@@ -56,25 +56,25 @@ export class ReportWriter {
             properties: {
                 title: {
                     type: SchemaType.STRING,
-                    description: "Title of the report"
+                    description: "Title of this report in 5-7 words that summarizes this entire report."
                 },
                 sections: {
                     type: SchemaType.ARRAY,
-                    description: "Array of sections in the report, properly formatted in markdown",
+                    description: "Array of individual sections in the report. Each section must answer a specific question of the user in very detailed. Make sure each section is as much technically rich as possible.",
                     items: {
                         type: SchemaType.OBJECT,
                         properties: {
                             rank: {
                                 type: SchemaType.NUMBER,
-                                description: "Sequential number indicating the order of this section"
+                                description: "The most important section much be rank 1 showing the important of the section in entire report. And this way we can show that section at first in the frontend. The most least important section must be rank last. Make sure these sections start from 1 to N."
                             },
                             sectionHeading: {
                                 type: SchemaType.STRING,
-                                description: "Section heading in markdown format (H1/H2/H3) with appropriate markdown tags"
+                                description: "Title of the section in 3-5 words in markdown heading format. You must generate `sectionHeading` with `##` or `###` before the heading to maintain the markdown format."
                             },
                             content: {
                                 type: SchemaType.STRING,
-                                description: "Content in full markdown format including lists and citations in [rank](citedUrls[rank].url) format"
+                                description: "This is the main content of the section. Make sure you use the full markdown feature to give this content. Since we already have section heading, you can directly start the main content. This content must be as much technically descriptive as possible. Feel free to go as much deep and as much detailed as possible. Make sure you are answer the exact question the user is asking within this section by being highly technical and detailed. Feel free to use ordered list, unordered list, bold, italic, code, etc. to make the content more engaging and detailed. Feel free to generate tables, diagrams, charts, etc. if the report demands. Keep in mind, do not hallucinate. What ever you write must be coming from a source. Don't use your own memory. Make sure the cite every sentence with exact urls whose content were used to write this section. Make sure the citations are numbered by their rank in citedUrls array. For citations use this exact format [rank_number_of_this_cited_url](https://example.com)."
                             }
                         },
                         required: ["rank", "sectionHeading", "content"]
@@ -82,25 +82,25 @@ export class ReportWriter {
                 },
                 citedUrls: {
                     type: SchemaType.ARRAY,
-                    description: "Array of cited URLs used in the report",
+                    description: "Array of cited URLs used in the report. All the full urls that were considered to write this full report. All the urls that were used to write every sections of the report. Don't make the urls yourself. Whatever url you give in this array, it must be provided to you and must be used to write the content of the sections.",
                     items: {
                         type: SchemaType.OBJECT,
                         properties: {
                             rank: {
                                 type: SchemaType.NUMBER,
-                                description: "Sequential rank number, most cited URL should be rank 1"
+                                description: "Url with 1 rank is the url with most citations in the entire report and multiple of these sections. Rank N will be the last url that is cited the least 1 or more than 1 in the entire report. Make sure to rank these urls accroding to their gravitas in the report."
                             },
                             url: {
                                 type: SchemaType.STRING,
-                                description: "URL of the source"
+                                description: "Full url of the website that was used to write the content of the section."
                             },
                             title: {
                                 type: SchemaType.STRING,
-                                description: "Title of the website"
+                                description: "Title of the website that was used to write the content of the section."
                             },
                             oneValueablePoint: {
                                 type: SchemaType.STRING,
-                                description: "One valuable fact or figure from this source that meets our objective"
+                                description: "One most important and highly valuable fact or figure from this source that meets our objective which shows the level of knowledge contribution of this source to the report."
                             }
                         },
                         required: ["rank", "url", "title", "oneValueablePoint"]
@@ -112,16 +112,27 @@ export class ReportWriter {
 
         const { response } = await generateObject({
             system: `
-    You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:
-      - Write in clear markdown format
+    You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:\n
+      - Write in clear markdown format\n
       - Every section must have proper markdown headers (# for H1, ## for H2, ### for H3)
-      - Every statement must have a citation linking to citedUrls using [rank](url) format
+      - End of every statement must have a citation linking to citedUrls using [rank_number_of_this_cited_url](https://example.com) format. If the citations is multiple for single statement, then give multiple citations back to back as many sources you have used to write that statement.
+      - Make sure every section is highly descriptive, overwhelminly long and technically rich as possible.
       - Citations must be numbered by their rank in citedUrls array
       - Each cited URL must have one valuable point extracted from it
       - Write in highly technical and detailed manner
       - Include all facts, figures, and technical specifications
       - Organize content into proper sections with appropriate ranks
-`,
+      - Generate minimum of 3 sections. If the report demands more sections, you are free to generate how many sections you want. But make sure every section is highly long and technically rich.
+
+      If you need to generate table for comparison purpose, use the following format:
+      | Column Heading 1 | Column Heading 2|\n
+      | - | - |\n
+      | Row 1 first element | Row 1 second element |\n
+      
+      Always, Inside every table except the heading row, make sure content inside every row's column's content give the website citations.
+      
+      Finally, Every sentence you write must be absolutely cited to one or more websites.
+      `,
             prompt: `
     Write a comprehensive technical report using these research findings:
 

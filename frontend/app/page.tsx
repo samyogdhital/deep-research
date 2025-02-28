@@ -1,19 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import {
-  Download,
-  Check,
-  ArrowRight,
-  Loader2,
-  CheckCircle,
-} from 'lucide-react';
-import { Spinner } from '../components/spinner';
 import { TbSend2 } from 'react-icons/tb';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
 import { Button } from '@/components/ui/button';
 import {
   Accordion,
@@ -22,49 +11,36 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { useRouter } from 'next/navigation';
-import { saveReport, getAllReports } from '@/lib/db'; // Add import
-import { useResearchStore } from '@/lib/research-store';
-import type { SerpQueryResult, ResearchSourcesLog } from '@/types/research';
+import { useResearchStore, OngoingResearch } from '@/lib/research-store';
+import type { ResearchData } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
 import { ArrowBigRight } from 'lucide-react';
 import { handleResearchEvent } from '@/lib/socket-handlers';
 
-interface Report {
-  title: string;
-  report_id: string;
-  sections: Array<{
-    rank: number;
-    sectionHeading: string;
-    content: string;
-  }>;
-  citedUrls: Array<{
-    rank: number;
-    url: string;
-    title: string;
-    oneValueablePoint: string;
-  }>;
-  isVisited?: boolean;
+// Define interfaces using backend types
+interface FollowUpQA {
+  id: number;
+  question: string;
+  answer: string;
 }
 
-type ResearchState = {
-  step: 'input' | 'follow-up' | 'processing' | 'complete';
+type ResearchPhase = 'input' | 'follow-up' | 'processing' | 'complete';
+
+interface ResearchState {
+  step: ResearchPhase;
   initialPrompt: string;
   depth: number;
   breadth: number;
   followUps_num: number;
   generatedFollowUpQuestions: string[];
-  followUps_QnA: Array<{
-    id: number;
-    question: string;
-    answer: string;
-  }>;
+  followUps_QnA: FollowUpQA[];
   logs: string[];
   showLogs: boolean;
-  report: Report | null;
-  sourcesLog?: ResearchSourcesLog;
-};
-
-type ResearchPhase = 'input' | 'follow-up' | 'processing' | 'complete';
+  report: ResearchData['report'] | null;
+  sourcesLog?: ResearchData['serpQueries'];
+  currentResearchId?: string;
+  error?: string;
+}
 
 export default function Home() {
   const router = useRouter();
@@ -259,7 +235,7 @@ export default function Home() {
 
   const handleInitialSubmit = async () => {
     if (!state.initialPrompt.trim()) {
-      alert('Please enter a research query');
+      setState((prev) => ({ ...prev, error: 'Please enter a research query' }));
       return;
     }
 
@@ -267,8 +243,7 @@ export default function Home() {
       setState((prev) => ({
         ...prev,
         step: 'processing',
-        generatedFollowUpQuestions: [],
-        followUps_QnA: [],
+        error: undefined,
         logs: [...prev.logs, 'Generating follow-up questions...'],
       }));
 
@@ -289,13 +264,14 @@ export default function Home() {
         throw new Error(error.details || 'Failed to generate questions');
       }
 
-      const data = await response.json();
-      if (!data || !data.questions || !Array.isArray(data.questions)) {
-        throw new Error('Invalid response format from server');
+      const data: { questions: string[]; report_id: string } =
+        await response.json();
+
+      if (!data.questions?.length) {
+        throw new Error('No questions were generated');
       }
 
-      const questions = Array.isArray(data.questions) ? data.questions : [];
-      const followUps = questions.map((q: string, idx: number) => ({
+      const followUps: FollowUpQA[] = data.questions.map((q, idx) => ({
         id: idx + 1,
         question: q,
         answer: '',
@@ -304,7 +280,8 @@ export default function Home() {
       setState((prev) => ({
         ...prev,
         step: 'follow-up',
-        generatedFollowUpQuestions: questions,
+        currentResearchId: data.report_id,
+        generatedFollowUpQuestions: data.questions,
         followUps_QnA: followUps,
         logs: [...prev.logs, 'Follow-up questions generated successfully'],
       }));
@@ -315,61 +292,75 @@ export default function Home() {
       setState((prev) => ({
         ...prev,
         step: 'input',
-        generatedFollowUpQuestions: [],
-        followUps_QnA: [],
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to generate questions',
         logs: [
           ...prev.logs,
-          `Error: ${
-            error instanceof Error
-              ? error.message
-              : 'Failed to generate questions'
-          }`,
+          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         ],
       }));
     }
   };
 
   const handleResearchStart = async () => {
+    if (!state.currentResearchId) {
+      setState((prev) => ({ ...prev, error: 'No research ID found' }));
+      return;
+    }
+
     if (state.followUps_QnA.some((qa) => !qa.answer.trim())) {
-      alert('Please answer all follow-up questions');
+      setState((prev) => ({
+        ...prev,
+        error: 'Please answer all follow-up questions',
+      }));
       return;
     }
 
     try {
-      const researchId = crypto.randomUUID();
-      setCurrentResearchId(researchId);
-
       setState((prev) => ({
         ...prev,
         step: 'processing',
+        error: undefined,
         logs: [...prev.logs, 'Starting deep research...'],
       }));
 
-      useResearchStore.getState().addResearch({
-        id: researchId,
-        report_id: researchId,
-        prompt: state.initialPrompt,
+      // Add research to store with all required fields
+      const newResearch: OngoingResearch = {
+        id: state.currentResearchId!,
+        report_id: state.currentResearchId!,
+        initial_query: state.initialPrompt,
+        depth: state.depth,
+        breadth: state.breadth,
+        followUps_num: state.followUps_num,
         startTime: Date.now(),
         status: 'collecting',
-      });
-
-      const followUpAnswers = state.followUps_QnA.reduce(
-        (acc: Record<string, string>, curr) => {
-          acc[curr.id.toString()] = curr.answer;
-          return acc;
+        followUps_QnA: state.followUps_QnA,
+        serpQueries: [],
+        information_crunching_agent: {
+          serpQueries: [],
         },
-        {}
-      );
+        report: null,
+      };
+
+      useResearchStore.getState().addResearch(newResearch);
+
+      // Convert follow-up answers to the expected format
+      const followUpAnswers = state.followUps_QnA.reduce<
+        Record<string, string>
+      >((acc, curr) => {
+        acc[curr.id.toString()] = curr.answer;
+        return acc;
+      }, {});
 
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            report_id: researchId,
+            report_id: state.currentResearchId,
             initial_query: state.initialPrompt,
             depth: state.depth,
             breadth: state.breadth,
@@ -380,8 +371,8 @@ export default function Home() {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || 'Research failed to start');
+        const error = await response.json();
+        throw new Error(error.details || 'Research failed to start');
       }
 
       setState((prev) => ({
@@ -392,21 +383,23 @@ export default function Home() {
         ],
       }));
 
-      router.push(`/report/${researchId}`);
+      // Redirect to the report page
+      router.push(`/report/${state.currentResearchId}`);
     } catch (error) {
       console.error('Research error:', error);
-      if (currentResearchId) {
-        useResearchStore.getState().removeResearch(currentResearchId);
+
+      // Clean up research from store if it failed
+      if (state.currentResearchId) {
+        useResearchStore.getState().removeResearch(state.currentResearchId);
       }
 
       setState((prev) => ({
         ...prev,
         step: 'input',
+        error: error instanceof Error ? error.message : 'Research failed',
         logs: [
           ...prev.logs,
-          `Error: ${
-            error instanceof Error ? error.message : 'Research failed'
-          }`,
+          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         ],
       }));
     }
@@ -426,7 +419,10 @@ export default function Home() {
 
     // Convert report to string format for download
     const reportContent = state.report.sections
-      .map((section) => `# ${section.sectionHeading}\n\n${section.content}`)
+      .map(
+        (section: ResearchData['report']['sections'][0]) =>
+          `# ${section.sectionHeading}\n\n${section.content}`
+      )
       .join('\n\n');
 
     const blob = new Blob([reportContent], { type: 'text/markdown' });
@@ -440,16 +436,15 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  // Helper function to determine if sources should be shown
-  const shouldShowSources = useMemo(() => {
-    return (
-      (state.step === 'processing' || state.step === 'complete') &&
-      state.generatedFollowUpQuestions.length > 0
-    );
-  }, [state.step, state.generatedFollowUpQuestions.length]);
-
   return (
     <main className='container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col'>
+      {/* Show error message if exists */}
+      {state.error && (
+        <div className='mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400'>
+          {state.error}
+        </div>
+      )}
+
       {state.step === 'input' && (
         <div className='flex-1 flex flex-col items-center justify-center -mt-24 space-y-12'>
           <h2 className='text-4xl font-bold font-inter text-gray-800 dark:text-white tracking-tight'>
@@ -818,164 +813,6 @@ export default function Home() {
               <ArrowBigRight size={20} />
             </Button>
           </div>
-        </div>
-      )}
-      {/* dark:bg-[#007e81] dark:hover:bg-[#00676a] */}
-      {/* Complete section */}
-      {state.step === 'complete' && state.report && (
-        <div className='space-y-6'>
-          {/* Download button */}
-          <div className='flex justify-end'>
-            <Button
-              variant='outline'
-              onClick={handleDownload}
-              className='flex items-center gap-2 px-3 py-2 border border-black transition-colors hover:text-white hover:bg-black dark:bg-transparent dark:text-[#007e81] dark:border-[#007e81] dark:hover:hover:bg-[#00676a] dark:hover:text-white'
-            >
-              <Download size={16} />
-              Download Markdown
-            </Button>
-          </div>
-
-          {/* Report content with proper dark mode */}
-          <div className='prose dark:prose-invert max-w-none'>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
-              components={{
-                h1: ({ node, ...props }) => (
-                  <h1 className='text-4xl font-bold mb-6' {...props} />
-                ),
-                h2: ({ node, ...props }) => (
-                  <h2 className='text-3xl font-bold mt-8 mb-4' {...props} />
-                ),
-                h3: ({ node, ...props }) => (
-                  <h3 className='text-2xl font-bold mt-6 mb-3' {...props} />
-                ),
-                a: ({ node, ...props }) => (
-                  <a
-                    className='text-blue-600 hover:text-blue-800 underline'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    {...props}
-                  />
-                ),
-                p: ({ node, ...props }) => <p className='my-4' {...props} />,
-              }}
-            >
-              {state.report.sections
-                .map(
-                  (section) =>
-                    `# ${section.sectionHeading}\n\n${section.content}`
-                )
-                .join('\n\n')}
-            </ReactMarkdown>
-          </div>
-        </div>
-      )}
-
-      {state.step === 'processing' && (
-        <div className='space-y-6'>
-          {/* Sources accordion (expanded by default) */}
-          {shouldShowSources && (
-            <Accordion type='single' collapsible defaultValue='sources'>
-              <AccordionItem value='sources'>
-                <AccordionTrigger className='text-xl font-bold'>
-                  All Sources{' '}
-                  {state.sourcesLog?.queries?.length
-                    ? `(${state.sourcesLog.queries.length})`
-                    : ''}
-                </AccordionTrigger>
-                <AccordionContent>
-                  {state.sourcesLog?.queries?.length ? (
-                    state.sourcesLog.queries.map(
-                      (query: SerpQueryResult, idx: number) => (
-                        <Accordion
-                          key={idx}
-                          type='single'
-                          collapsible
-                          className='ml-4 mb-4'
-                        >
-                          <AccordionItem value={`query-${idx}`}>
-                            <AccordionTrigger className='text-lg font-semibold'>
-                              {query.query} - {query.objective}
-                            </AccordionTrigger>
-                            <AccordionContent>
-                              {/* Successfully scraped section */}
-                              {query.successfulScrapes.length > 0 && (
-                                <div className='mb-4'>
-                                  <h4 className='font-medium mb-2 text-green-600 dark:text-green-400'>
-                                    Successfully Scraped (
-                                    {query.successfulScrapes.length})
-                                  </h4>
-                                  <ol className='list-decimal ml-4 space-y-4'>
-                                    {query.successfulScrapes.map(
-                                      (
-                                        scrape: {
-                                          url: string;
-                                          extractedContent: string;
-                                        },
-                                        sIdx: number
-                                      ) => (
-                                        <li
-                                          key={sIdx}
-                                          className='text-gray-800 dark:text-gray-200'
-                                        >
-                                          <a
-                                            href={scrape.url}
-                                            target='_blank'
-                                            rel='noopener noreferrer'
-                                            className='text-blue-600 dark:text-blue-400 hover:underline'
-                                          >
-                                            {scrape.url}
-                                          </a>
-                                          <p className='mt-2 text-sm text-gray-600 dark:text-gray-300'>
-                                            {scrape.extractedContent}
-                                          </p>
-                                        </li>
-                                      )
-                                    )}
-                                  </ol>
-                                </div>
-                              )}
-
-                              {/* Failed scrapes section */}
-                              {query.failedScrapes.length > 0 && (
-                                <div>
-                                  <h4 className='font-medium mb-2 text-red-500'>
-                                    Failed to Scrape (
-                                    {query.failedScrapes.length})
-                                  </h4>
-                                  <ul className='list-disc ml-4 space-y-2'>
-                                    {query.failedScrapes.map(
-                                      (
-                                        fail: { url: string; error: string },
-                                        fIdx: number
-                                      ) => (
-                                        <li
-                                          key={fIdx}
-                                          className='text-sm text-gray-500'
-                                        >
-                                          {fail.url} - {fail.error}
-                                        </li>
-                                      )
-                                    )}
-                                  </ul>
-                                </div>
-                              )}
-                            </AccordionContent>
-                          </AccordionItem>
-                        </Accordion>
-                      )
-                    )
-                  ) : (
-                    <p className='text-gray-500 dark:text-gray-400'>
-                      No sources found.
-                    </p>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          )}
         </div>
       )}
     </main>

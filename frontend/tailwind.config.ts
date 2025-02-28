@@ -44,7 +44,9 @@ export default {
 					DEFAULT: "hsl(var(--card))",
 					foreground: "hsl(var(--card-foreground))",
 				},
-				"bg_color": "#191a1a"
+				"bg_color": "#191a1a",
+				"sig-color": "#007e81",
+				"sig-color-hover": "#00676a"
 			},
 			keyframes: {
 				"accordion-down": {
