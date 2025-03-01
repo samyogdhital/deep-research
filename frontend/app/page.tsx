@@ -24,7 +24,14 @@ interface FollowUpQA {
   answer: string;
 }
 
-type ResearchPhase = 'input' | 'follow-up' | 'processing' | 'complete';
+type ResearchPhase =
+  | 'input'
+  | 'follow-up'
+  | 'searching'
+  | 'analyzing'
+  | 'reporting'
+  | 'processing'
+  | 'complete';
 
 interface ResearchState {
   step: ResearchPhase;
@@ -36,10 +43,40 @@ interface ResearchState {
   followUps_QnA: FollowUpQA[];
   logs: string[];
   showLogs: boolean;
-  report: ResearchData['report'] | null;
+  report: ResearchData['report'];
   sourcesLog?: ResearchData['serpQueries'];
   currentResearchId?: string;
   error?: string;
+  isResearchInProgress: boolean;
+  serpQueries: Array<{
+    query: string;
+    objective: string;
+    query_rank: number;
+    successful_scraped_websites: Array<{
+      url: string;
+      title: string;
+      description: string;
+      isRelevant: number;
+      extracted_from_website_analyzer_agent: string[];
+    }>;
+    failedWebsites: string[];
+  }>;
+  crunchedInformation: Array<{
+    query_rank: number;
+    crunched_information: Array<{
+      url: string;
+      content: string[];
+    }>;
+  }>;
+}
+
+// Add interface for website data
+interface Website {
+  url: string;
+  title: string;
+  description: string;
+  isRelevant: number;
+  extracted_from_website_analyzer_agent: string[];
 }
 
 export default function Home() {
@@ -48,13 +85,16 @@ export default function Home() {
     step: 'input',
     initialPrompt: '',
     depth: 1,
-    breadth: 1,
-    followUps_num: 5,
+    breadth: 2,
+    followUps_num: 1,
     generatedFollowUpQuestions: [],
     followUps_QnA: [],
     logs: [],
     showLogs: false,
-    report: null,
+    report: undefined,
+    isResearchInProgress: false,
+    serpQueries: [],
+    crunchedInformation: [],
   });
 
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -62,44 +102,27 @@ export default function Home() {
     null
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [accordionValue, setAccordionValue] = useState<string | undefined>(
-    undefined
-  );
 
   // Remove unused state
   const [showDepthInput, setShowDepthInput] = useState(false);
   const [showBreadthInput, setShowBreadthInput] = useState(false);
   const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
 
-  // Handle accordion auto-expand/collapse sequence
-  useEffect(() => {
-    if (state.step === 'processing') {
-      setAccordionValue(undefined);
-      const expandTimeout = setTimeout(() => {
-        setAccordionValue('logs');
-      }, 200);
-
-      if (state.generatedFollowUpQuestions.length > 0) {
-        setAccordionValue(undefined);
-      }
-
-      return () => clearTimeout(expandTimeout);
-    }
-  }, [state.step, state.generatedFollowUpQuestions.length]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Single WebSocket setup effect
   useEffect(() => {
-    const newSocket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
+    const socket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
       withCredentials: true,
       transports: ['websocket'],
     });
 
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-      newSocket.emit('request-ongoing-research');
+    socket.on('connect', () => {
+      console.log('Socket connected:', socket.id);
+      socket.emit('request-ongoing-research');
     });
 
-    newSocket.on('connect_error', (error) => {
+    socket.on('connect_error', (error: Error) => {
       console.error('Socket connection error:', error);
       setState((prev) => ({
         ...prev,
@@ -107,38 +130,232 @@ export default function Home() {
       }));
     });
 
-    // Use the handleResearchEvent for all research-related events
-    const researchEvents = [
-      'generating_followups',
-      'followups_generated',
-      'new_serp_query',
-      'new_website_successfully_scrape',
-      'website_analyzer_agent',
-      'crunching_serp_query',
-      'crunched_information',
-      'report_writing_start',
-      'report_writing_successfull',
-      'research_error',
-    ];
+    // Handle research events
+    socket.on('new_serp_query', (data: any) => {
+      console.log('New SERP query:', data); // Debug log
+      setState((prev) => {
+        // Get all queries from the incoming data
+        const incomingQueries = data.serpQueries || [];
+        const updatedQueries = [...prev.serpQueries];
 
-    researchEvents.forEach((event) => {
-      newSocket.on(event, (data) => handleResearchEvent(event, data));
+        incomingQueries.forEach((incomingQuery: any) => {
+          const newQuery = {
+            query: incomingQuery.query || '',
+            objective: incomingQuery.objective || '',
+            query_rank: incomingQuery.query_rank || updatedQueries.length + 1,
+            successful_scraped_websites:
+              incomingQuery.successful_scraped_websites || [],
+            failedWebsites: incomingQuery.failedWebsites || [],
+          };
+
+          // Check if this query already exists
+          const existingQueryIndex = updatedQueries.findIndex(
+            (q) => q.query_rank === newQuery.query_rank
+          );
+
+          if (existingQueryIndex !== -1) {
+            // Update existing query
+            updatedQueries[existingQueryIndex] = {
+              ...updatedQueries[existingQueryIndex],
+              ...newQuery,
+            };
+          } else {
+            // Add new query
+            updatedQueries.push(newQuery);
+          }
+        });
+
+        // Sort queries by rank
+        updatedQueries.sort((a, b) => a.query_rank - b.query_rank);
+
+        return {
+          ...prev,
+          step: 'searching',
+          serpQueries: updatedQueries,
+        };
+      });
     });
 
-    // Handle research completion separately as it requires navigation
-    newSocket.on('research-completed', async ({ id, researchId }) => {
-      useResearchStore.getState().removeResearch(researchId);
-      if (researchId === currentResearchId) {
-        setCurrentResearchId(null);
-        router.push(`/report/${id}`);
+    socket.on('new_website_successfully_scrape', (data: any) => {
+      console.log('New website data:', data); // Debug log
+      setState((prev) => {
+        const updatedQueries = [...prev.serpQueries];
+
+        // Handle all queries in the incoming data
+        (data.serpQueries || []).forEach((incomingQuery: any) => {
+          const queryIndex = updatedQueries.findIndex(
+            (q) => q.query_rank === incomingQuery.query_rank
+          );
+
+          if (queryIndex !== -1) {
+            const existingWebsites =
+              updatedQueries[queryIndex].successful_scraped_websites;
+            const newWebsites = incomingQuery.successful_scraped_websites || [];
+
+            // Update or add each new website
+            newWebsites.forEach((newSite: any) => {
+              const existingIndex = existingWebsites.findIndex(
+                (site) => site.url === newSite.url
+              );
+
+              const websiteObj = {
+                url: newSite.url || '',
+                title: newSite.title || newSite.url || 'Unknown Website',
+                description: newSite.description || '',
+                isRelevant:
+                  typeof newSite.isRelevant === 'number'
+                    ? newSite.isRelevant
+                    : 0,
+                extracted_from_website_analyzer_agent:
+                  newSite.extracted_from_website_analyzer_agent || [],
+              };
+
+              if (existingIndex !== -1) {
+                existingWebsites[existingIndex] = {
+                  ...existingWebsites[existingIndex],
+                  ...websiteObj,
+                };
+              } else {
+                existingWebsites.push(websiteObj);
+              }
+            });
+
+            updatedQueries[queryIndex] = {
+              ...updatedQueries[queryIndex],
+              successful_scraped_websites: existingWebsites,
+            };
+          }
+        });
+
+        return {
+          ...prev,
+          serpQueries: updatedQueries,
+        };
+      });
+    });
+
+    socket.on('website_analyzer_agent', (data: any) => {
+      console.log('Website analyzer data:', data); // Debug log
+      setState((prev) => {
+        const updatedQueries = [...prev.serpQueries];
+
+        // Handle all queries in the incoming data
+        (data.serpQueries || []).forEach((incomingQuery: any) => {
+          const queryIndex = updatedQueries.findIndex(
+            (q) => q.query_rank === incomingQuery.query_rank
+          );
+
+          if (queryIndex !== -1) {
+            const currentWebsites = [
+              ...updatedQueries[queryIndex].successful_scraped_websites,
+            ];
+            const analyzedWebsites =
+              incomingQuery.successful_scraped_websites || [];
+
+            // Update analyzed websites
+            analyzedWebsites.forEach((analyzedSite: any) => {
+              const websiteIndex = currentWebsites.findIndex(
+                (site) => site.url === analyzedSite.url
+              );
+
+              if (websiteIndex !== -1) {
+                currentWebsites[websiteIndex] = {
+                  ...currentWebsites[websiteIndex],
+                  isRelevant:
+                    typeof analyzedSite.isRelevant === 'number'
+                      ? analyzedSite.isRelevant
+                      : currentWebsites[websiteIndex].isRelevant,
+                  extracted_from_website_analyzer_agent:
+                    analyzedSite.extracted_from_website_analyzer_agent ||
+                    currentWebsites[websiteIndex]
+                      .extracted_from_website_analyzer_agent,
+                };
+              }
+            });
+
+            updatedQueries[queryIndex] = {
+              ...updatedQueries[queryIndex],
+              successful_scraped_websites: currentWebsites,
+            };
+          }
+        });
+
+        return {
+          ...prev,
+          serpQueries: updatedQueries,
+        };
+      });
+    });
+
+    socket.on('crunching_serp_query', () => {
+      setState((prev) => ({
+        ...prev,
+        step: 'analyzing',
+      }));
+    });
+
+    socket.on('crunched_information', (data: any) => {
+      setState((prev) => ({
+        ...prev,
+        crunchedInformation: [
+          ...(prev.crunchedInformation || []),
+          {
+            ...data,
+            crunched_information: data.crunched_information || [],
+          },
+        ],
+      }));
+    });
+
+    socket.on('report_writing_start', (data: any) => {
+      console.log('Report writing start:', data); // Debug log
+      setState((prev) => {
+        // Get all queries from the incoming data
+        const incomingQueries = data.serpQueries || [];
+        const updatedQueries = [...incomingQueries].sort(
+          (a, b) => a.query_rank - b.query_rank
+        );
+
+        return {
+          ...prev,
+          step: 'reporting',
+          serpQueries: updatedQueries,
+        };
+      });
+    });
+
+    socket.on('report_writing_successfull', (data: any) => {
+      setState((prev) => ({
+        ...prev,
+        report: data,
+        step: 'complete',
+        isResearchInProgress: false,
+      }));
+    });
+
+    // Handle research completion
+    socket.on(
+      'research-completed',
+      async ({ id, researchId }: { id: string; researchId: string }) => {
+        console.log('Research completed:', { id, researchId }); // Debug log
+        useResearchStore.getState().removeResearch(researchId);
+        if (researchId === currentResearchId) {
+          setCurrentResearchId(null);
+          setState((prev) => ({
+            ...prev,
+            isResearchInProgress: false,
+            step: 'complete',
+          }));
+          router.push(`/report/${id}`);
+        }
       }
-    });
+    );
 
-    setSocket(newSocket);
+    setSocket(socket);
 
     return () => {
       console.log('Cleaning up socket connection');
-      newSocket.disconnect();
+      socket.disconnect();
     };
   }, [router, currentResearchId]);
 
@@ -240,11 +457,10 @@ export default function Home() {
     }
 
     try {
+      setIsSubmitting(true);
       setState((prev) => ({
         ...prev,
-        step: 'processing',
         error: undefined,
-        logs: [...prev.logs, 'Generating follow-up questions...'],
       }));
 
       const response = await fetch(
@@ -283,24 +499,18 @@ export default function Home() {
         currentResearchId: data.report_id,
         generatedFollowUpQuestions: data.questions,
         followUps_QnA: followUps,
-        logs: [...prev.logs, 'Follow-up questions generated successfully'],
       }));
-
-      setAccordionValue(undefined);
     } catch (error) {
       console.error('Error:', error);
       setState((prev) => ({
         ...prev,
-        step: 'input',
         error:
           error instanceof Error
             ? error.message
             : 'Failed to generate questions',
-        logs: [
-          ...prev.logs,
-          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        ],
       }));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -321,30 +531,10 @@ export default function Home() {
     try {
       setState((prev) => ({
         ...prev,
-        step: 'processing',
         error: undefined,
-        logs: [...prev.logs, 'Starting deep research...'],
+        isResearchInProgress: true,
+        step: 'processing',
       }));
-
-      // Add research to store with all required fields
-      const newResearch: OngoingResearch = {
-        id: state.currentResearchId!,
-        report_id: state.currentResearchId!,
-        initial_query: state.initialPrompt,
-        depth: state.depth,
-        breadth: state.breadth,
-        followUps_num: state.followUps_num,
-        startTime: Date.now(),
-        status: 'collecting',
-        followUps_QnA: state.followUps_QnA,
-        serpQueries: [],
-        information_crunching_agent: {
-          serpQueries: [],
-        },
-        report: null,
-      };
-
-      useResearchStore.getState().addResearch(newResearch);
 
       // Convert follow-up answers to the expected format
       const followUpAnswers = state.followUps_QnA.reduce<
@@ -374,33 +564,13 @@ export default function Home() {
         const error = await response.json();
         throw new Error(error.details || 'Research failed to start');
       }
-
-      setState((prev) => ({
-        ...prev,
-        logs: [
-          ...prev.logs,
-          'Research started successfully. Redirecting to report page...',
-        ],
-      }));
-
-      // Redirect to the report page
-      router.push(`/report/${state.currentResearchId}`);
     } catch (error) {
       console.error('Research error:', error);
-
-      // Clean up research from store if it failed
-      if (state.currentResearchId) {
-        useResearchStore.getState().removeResearch(state.currentResearchId);
-      }
-
       setState((prev) => ({
         ...prev,
         step: 'input',
+        isResearchInProgress: false,
         error: error instanceof Error ? error.message : 'Research failed',
-        logs: [
-          ...prev.logs,
-          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        ],
       }));
     }
   };
@@ -415,14 +585,10 @@ export default function Home() {
   };
 
   const handleDownload = () => {
-    if (!state.report) return;
+    if (!state.report?.sections) return;
 
-    // Convert report to string format for download
     const reportContent = state.report.sections
-      .map(
-        (section: ResearchData['report']['sections'][0]) =>
-          `# ${section.sectionHeading}\n\n${section.content}`
-      )
+      .map((section) => `# ${section.sectionHeading}\n\n${section.content}`)
       .join('\n\n');
 
     const blob = new Blob([reportContent], { type: 'text/markdown' });
@@ -446,7 +612,7 @@ export default function Home() {
       )}
 
       {state.step === 'input' && (
-        <div className='flex-1 flex flex-col items-center justify-center -mt-24 space-y-12'>
+        <div className='flex-1 flex flex-col items-center justify-center -mt-24 space-y-12 animate-in fade-in duration-300'>
           <h2 className='text-4xl font-bold font-inter text-gray-800 dark:text-white tracking-tight'>
             What do you want to know?
           </h2>
@@ -471,7 +637,7 @@ export default function Home() {
               />
             </div>
 
-            {/* Controls section with top border removed */}
+            {/* Depth Breadth and Follow Ups Controls section with top border removed */}
             <div className='border-2 dark:border-gray-700 border-t-0 rounded-b-lg bg-white dark:bg-[#202121] px-6 py-3'>
               <div className='flex justify-between items-center'>
                 <div className='flex gap-3'>
@@ -559,16 +725,20 @@ export default function Home() {
                 {/* Circular submit button */}
                 <Button
                   title='Submit Prompt'
-                  disabled={!state.initialPrompt}
+                  disabled={!state.initialPrompt || isSubmitting}
                   onClick={handleInitialSubmit}
-                  className={`rounded-full w-12 h-12 p-0 flex items-center justify-center transition-colors
-                    ${
-                      state.initialPrompt
-                        ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white'
-                        : 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-400'
-                    }`}
+                  className={cn(
+                    'rounded-full w-12 h-12 p-0 flex items-center justify-center transition-all duration-300',
+                    state.initialPrompt && !isSubmitting
+                      ? 'bg-gray-900 hover:bg-black text-white dark:bg-[#007e81] dark:hover:bg-[#00676a] dark:text-white'
+                      : 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-400'
+                  )}
                 >
-                  <TbSend2 size={20} />
+                  {isSubmitting ? (
+                    <div className='w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin' />
+                  ) : (
+                    <TbSend2 size={20} />
+                  )}
                 </Button>
               </div>
             </div>
@@ -576,163 +746,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* Updated Log Section */}
-      {state.step !== 'input' && (
-        <div className='space-y-4 mx-auto mb-6 w-full max-w-3xl'>
-          <Accordion
-            type='single'
-            collapsible
-            value={accordionValue}
-            onValueChange={setAccordionValue}
-            className='w-full'
-          >
-            <AccordionItem value='logs' className='border-none'>
-              <AccordionTrigger
-                className={cn(
-                  'flex w-full items-center justify-between px-6 py-3',
-                  'text-left text-xs transition-all',
-                  'bg-white dark:bg-gray-800',
-                  '[&[data-state=open]>div>svg]:rotate-180',
-                  'border border-gray-100 dark:border-gray-700 rounded-lg',
-                  '[&[data-state=open]]:rounded-b-none',
-                  'hover:no-underline'
-                )}
-              >
-                <div className='flex w-full items-center justify-between pr-6'>
-                  <span className='text-base font-bold text-gray-800 dark:text-gray-200'>
-                    Deep Research
-                  </span>
-                  <span className='text-xs text-gray-500 dark:text-gray-400'>
-                    12 sources
-                  </span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className='pt-6 w-full bg-gray-50 dark:bg-gray-800/50 border border-t-0 border-gray-100 dark:border-gray-700 rounded-b-lg'>
-                {/* Roadmap with Checkpoints */}
-                <div className='relative pl-8'>
-                  {/* Vertical Timeline - Only between icons */}
-                  <div className='absolute left-[1.1875rem] top-[1.25rem] bottom-[1.25rem] w-[1px] bg-gray-200 dark:bg-gray-700 -translate-x-1/2' />
-
-                  {/* Follow-up Questions Checkpoint */}
-                  <div className='space-y-4'>
-                    <Accordion type='single' collapsible className='w-full'>
-                      <AccordionItem value='followup' className='border-none'>
-                        <AccordionTrigger
-                          className={cn(
-                            'flex w-full items-center py-2 pr-6',
-                            'text-left text-xs transition-all',
-                            '[&[data-state=open]>div>svg]:rotate-180',
-                            'hover:no-underline group'
-                          )}
-                        >
-                          <div className='flex items-center gap-3 w-full'>
-                            <div
-                              className={cn(
-                                'w-5 h-5 rounded-full flex items-center justify-center relative z-10',
-                                state.generatedFollowUpQuestions.length > 0
-                                  ? 'bg-green-100 dark:bg-green-900/20'
-                                  : 'bg-blue-100 dark:bg-blue-900/20'
-                              )}
-                            >
-                              <div
-                                className={cn(
-                                  'w-2.5 h-2.5 rounded-full',
-                                  state.generatedFollowUpQuestions.length > 0
-                                    ? 'bg-green-500 dark:bg-green-400'
-                                    : 'bg-blue-400 dark:bg-blue-500 animate-pulse'
-                                )}
-                              />
-                            </div>
-                            <span className='text-xs text-gray-700 dark:text-gray-200 flex-grow'>
-                              {state.generatedFollowUpQuestions.length > 0
-                                ? 'Generated Follow-up Questions'
-                                : 'Generating Follow-up Questions'}
-                            </span>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          {/* Follow-up Question Logs - No icons, just text */}
-                          <div className='pl-9 space-y-2 mt-2'>
-                            <div className='text-[0.75rem] text-gray-600 dark:text-gray-300 pl-4 border-l-2 border-gray-200 dark:border-gray-700'>
-                              <div className='py-1.5'>
-                                Generating follow-up questions
-                              </div>
-                              {state.generatedFollowUpQuestions.length > 0 && (
-                                <div className='py-1.5'>
-                                  Generated{' '}
-                                  {state.generatedFollowUpQuestions.length}{' '}
-                                  follow-up questions
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
-
-                    {/* Search Phase - Disabled until previous step completes */}
-                    <div
-                      className={`w-full ${
-                        state.generatedFollowUpQuestions.length === 0
-                          ? 'opacity-50'
-                          : ''
-                      }`}
-                    >
-                      <div className='flex items-center gap-3 py-2 pr-6'>
-                        <div className='w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center relative z-10'>
-                          <div className='w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500' />
-                        </div>
-                        <span className='text-xs text-gray-700 dark:text-gray-200'>
-                          Searching for information
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Analysis Phase - Disabled until previous step completes */}
-                    <div
-                      className={`w-full ${
-                        state.generatedFollowUpQuestions.length === 0
-                          ? 'opacity-50'
-                          : ''
-                      }`}
-                    >
-                      <div className='flex items-center gap-3 py-2 pr-6'>
-                        <div className='w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center relative z-10'>
-                          <div className='w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500' />
-                        </div>
-                        <span className='text-xs text-gray-700 dark:text-gray-200'>
-                          Analyzing findings
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Report Generation - Disabled until previous step completes */}
-                    <div
-                      className={`w-full ${
-                        state.generatedFollowUpQuestions.length === 0
-                          ? 'opacity-50'
-                          : ''
-                      }`}
-                    >
-                      <div className='flex items-center gap-3 py-2 pr-6'>
-                        <div className='w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center relative z-10'>
-                          <div className='w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500' />
-                        </div>
-                        <span className='text-xs text-gray-700 dark:text-gray-200'>
-                          Generating final report
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </div>
-      )}
-
-      {/* Updated Follow-up section with more margin and smaller text */}
-      {state.step === 'follow-up' && (
+      {/* List of follow up questions that user will answer and start the deep research process by clicking on research button. */}
+      {state.step === 'follow-up' && !state.isResearchInProgress && (
         <div className='space-y-8 mx-auto w-full max-w-3xl mt-12'>
           <div className='text-center space-y-2'>
             <h2 className='text-2xl font-bold text-gray-800 dark:text-gray-100'>
@@ -743,9 +758,8 @@ export default function Home() {
               questions
             </p>
           </div>
-          {Array.isArray(state.followUps_QnA) &&
-          state.followUps_QnA.length > 0 ? (
-            state.followUps_QnA.map((qa, idx) => (
+          <>
+            {state.followUps_QnA.map((qa, idx) => (
               <div
                 key={qa.id}
                 className='bg-white dark:bg-[#202121] rounded-xl p-6 shadow-sm border-2 border-gray-100 dark:border-gray-800 space-y-4 transition-all duration-200 hover:shadow-md w-full'
@@ -763,11 +777,11 @@ export default function Home() {
                     <div className='relative'>
                       <textarea
                         className='w-full p-4 border-2 rounded-lg text-base
-                          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400
-                          dark:bg-[#161717] dark:text-white dark:border-gray-700
-                          dark:focus:ring-[#007e81] dark:focus:ring-offset-[#202121]
-                          transition-all duration-200
-                          resize-none overflow-y-auto min-h-[120px] max-h-[400px]'
+                            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400
+                            dark:bg-[#161717] dark:text-white dark:border-gray-700
+                            dark:focus:ring-[#007e81] dark:focus:ring-offset-[#202121]
+                            transition-all duration-200
+                            resize-none overflow-y-auto min-h-[120px] max-h-[400px]'
                         value={qa.answer}
                         onChange={(e) => {
                           handleAnswerChange(qa.id, e.target.value);
@@ -789,30 +803,176 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            ))
-          ) : (
-            <div className='text-center text-gray-500 dark:text-gray-400 py-8'>
-              Loading questions...
+            ))}
+            <div className='flex justify-end mt-8 mb-12'>
+              <Button
+                onClick={handleResearchStart}
+                disabled={
+                  !Array.isArray(state.followUps_QnA) ||
+                  state.followUps_QnA.length === 0 ||
+                  state.followUps_QnA.some((qa) => !qa.answer?.trim()) ||
+                  state.isResearchInProgress
+                }
+                className={cn(
+                  'text-white bg-[#007e81] hover:bg-[#00676a]',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                  'transition-colors shadow-md hover:shadow-lg',
+                  'py-2 px-3 text-base font-medium rounded-lg',
+                  'flex items-center gap-2'
+                )}
+              >
+                {state.isResearchInProgress ? (
+                  <div className='w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin' />
+                ) : (
+                  <>
+                    Research
+                    <ArrowBigRight size={20} />
+                  </>
+                )}
+              </Button>
+            </div>
+          </>
+        </div>
+      )}
+
+      {/* Research Progress UI */}
+      {state.isResearchInProgress && (
+        <div className='space-y-8 mx-auto w-full max-w-3xl mt-12'>
+          <div className='text-center space-y-2'>
+            <h2 className='text-2xl font-bold text-gray-800 dark:text-gray-100'>
+              Research in Progress
+            </h2>
+            <p className='text-sm text-gray-600 dark:text-gray-400'>
+              {state.step === 'searching' &&
+                'Searching and analyzing websites...'}
+              {state.step === 'analyzing' &&
+                'Analyzing gathered information...'}
+              {state.step === 'reporting' &&
+                'Generating your research report...'}
+              {state.step === 'processing' && 'Processing your request...'}
+            </p>
+          </div>
+
+          {/* SERP Queries Progress */}
+          {(state.serpQueries || []).length > 0 && (
+            <div className='space-y-6 max-h-[70vh] overflow-y-auto pr-2'>
+              <h3 className='text-lg font-semibold text-gray-800 dark:text-gray-200 sticky top-0 bg-white dark:bg-[#161717] py-2 z-10'>
+                Search Queries Progress
+              </h3>
+              <div className='space-y-4'>
+                {state.serpQueries.map((query, idx) => (
+                  <div
+                    key={idx}
+                    className='bg-white dark:bg-[#202121] rounded-xl p-6 shadow-sm border-2 border-gray-100 dark:border-gray-800'
+                  >
+                    <div className='space-y-4'>
+                      <div className='flex justify-between items-start'>
+                        <div className='space-y-2'>
+                          <h4 className='font-medium text-gray-900 dark:text-gray-100'>
+                            Query {query.query_rank}: {query.query}
+                          </h4>
+                          <p className='text-sm text-gray-600 dark:text-gray-400'>
+                            Objective: {query.objective}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Websites Progress */}
+                      <div className='mt-4 space-y-3'>
+                        <h5 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                          Analyzed Websites (
+                          {query.successful_scraped_websites?.length || 0})
+                        </h5>
+                        <div className='space-y-2'>
+                          {(query.successful_scraped_websites || []).map(
+                            (website, widx) => (
+                              <div
+                                key={`${website.url}-${widx}`}
+                                className='flex items-start justify-between text-sm bg-gray-50 dark:bg-[#161717] p-3 rounded-lg gap-4'
+                              >
+                                <div className='flex-1 min-w-0 space-y-1'>
+                                  <div className='text-gray-900 dark:text-gray-100 font-medium truncate'>
+                                    {website.title || website.url}
+                                  </div>
+                                  {website.description && (
+                                    <div className='text-gray-500 dark:text-gray-400 text-xs truncate'>
+                                      {website.description}
+                                    </div>
+                                  )}
+                                  <div className='text-gray-400 dark:text-gray-500 text-xs truncate'>
+                                    {website.url}
+                                  </div>
+                                </div>
+                                <div className='flex-shrink-0 self-center'>
+                                  {Array.isArray(
+                                    website.extracted_from_website_analyzer_agent
+                                  ) &&
+                                  website.extracted_from_website_analyzer_agent
+                                    .length > 0 ? (
+                                    <span className='text-green-600 dark:text-green-400 flex items-center gap-1 whitespace-nowrap'>
+                                      <span className='w-2 h-2 rounded-full bg-green-500'></span>
+                                      Analyzed
+                                    </span>
+                                  ) : (
+                                    <span className='text-yellow-600 dark:text-yellow-400 flex items-center gap-1 whitespace-nowrap'>
+                                      <span className='w-2 h-2 rounded-full bg-yellow-500 animate-pulse'></span>
+                                      Processing
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-          <div className='flex justify-end mt-8 mb-12'>
-            <Button
-              onClick={handleResearchStart}
-              disabled={
-                !Array.isArray(state.followUps_QnA) ||
-                state.followUps_QnA.length === 0 ||
-                state.followUps_QnA.some((qa) => !qa.answer?.trim())
-              }
-              className='text-white bg-[#007e81] hover:bg-[#00676a]
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-colors shadow-md hover:shadow-lg
-                py-2 px-3 text-base font-medium rounded-lg
-                flex items-center gap-0 pr-2'
-            >
-              Research
-              <ArrowBigRight size={20} />
-            </Button>
-          </div>
+
+          {/* Information Crunching Progress */}
+          {(state.crunchedInformation || []).length > 0 && (
+            <div className='space-y-6'>
+              <h3 className='text-lg font-semibold text-gray-800 dark:text-gray-200'>
+                Information Processing
+              </h3>
+              <div className='space-y-4'>
+                {(state.crunchedInformation || []).map(
+                  (info, idx) =>
+                    info && (
+                      <div
+                        key={idx}
+                        className='bg-white dark:bg-[#202121] rounded-xl p-6 shadow-sm border-2 border-gray-100 dark:border-gray-800'
+                      >
+                        <h4 className='font-medium text-gray-900 dark:text-gray-100'>
+                          Query {info.query_rank || 'Unknown'} Results
+                        </h4>
+                        <div className='mt-4 space-y-3'>
+                          {(info.crunched_information || []).map(
+                            (crunch, cidx) =>
+                              crunch && (
+                                <div
+                                  key={cidx}
+                                  className='text-sm bg-gray-50 dark:bg-[#161717] p-3 rounded-lg'
+                                >
+                                  <p className='text-gray-600 dark:text-gray-400'>
+                                    Processed information from{' '}
+                                    {(
+                                      crunch.url || 'Unknown Source'
+                                    ).toString()}
+                                  </p>
+                                </div>
+                              )
+                          )}
+                        </div>
+                      </div>
+                    )
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </main>
