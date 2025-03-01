@@ -4,18 +4,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TbSend2 } from 'react-icons/tb';
 import { Button } from '@/components/ui/button';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
 import { useRouter } from 'next/navigation';
 import { useResearchStore, OngoingResearch } from '@/lib/research-store';
 import type { ResearchData } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
 import { ArrowBigRight } from 'lucide-react';
-import { handleResearchEvent } from '@/lib/socket-handlers';
 
 // Define interfaces using backend types
 interface FollowUpQA {
