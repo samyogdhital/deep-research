@@ -4,7 +4,7 @@ import { WebsiteAnalyzer } from './agent/website-analyzer';
 import { type TrackedLearning } from './agent/report-writer';
 import { SearxNG } from '../content-extraction/searxng';
 import { Firecrawl } from '../content-extraction/firecrawl';
-import { type AgentResult, type ResearchProgress, type ResearchResult, type ScrapedContent, type SearxResult } from './types';
+import { type AgentResult, type ResearchProgress, type ResearchResult, type ScrapedContent, type SearxResult, WebsiteStatus } from './types';
 import { encode } from 'gpt-tokenizer';
 import { ResearchDB } from './db';
 import { WebSocketManager } from './websocket';
@@ -154,8 +154,11 @@ export async function deepResearch({
 
       // Update DB and emit event for failed scrapes
       await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
-      if (wsManager) {
-        await wsManager.handleWebsiteScraped(researchId);
+      if (wsManager && serpQuery.successful_scraped_websites.length > 0) {
+        const website = serpQuery.successful_scraped_websites[0];
+        if (website && 'id' in website && 'status' in website) {
+          await wsManager.handleWebsiteScraping(researchId, website as WebsiteStatus);
+        }
       }
 
       // Process successful scrapes
@@ -168,13 +171,13 @@ export async function deepResearch({
         try {
           // Find corresponding website object
           const website = serpQuery.successful_scraped_websites.find(w => w.url === content.url);
-          if (!website) continue;
+          if (!website || !('id' in website)) continue;
 
-          // Update status to analyzing
+          // Update status to analyzing and save to DB
           website.status = 'analyzing';
           await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
           if (wsManager) {
-            await wsManager.handleWebsiteAnalysis(researchId);
+            await wsManager.handleWebsiteAnalyzing(researchId, website as WebsiteStatus);
           }
 
           const analysis = await websiteAnalyzer.analyzeContent({
@@ -188,10 +191,10 @@ export async function deepResearch({
             website.isRelevant = analysis.meetsObjective ? 8 : 5;
             website.extracted_from_website_analyzer_agent = [analysis.content];
 
-            // Save to DB and emit event
+            // Save to DB and emit analyzed event
             await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
             if (wsManager) {
-              await wsManager.handleWebsiteAnalysis(researchId);
+              await wsManager.handleWebsiteAnalyzed(researchId, website as WebsiteStatus);
             }
 
             // Track words and content
@@ -256,7 +259,7 @@ export async function deepResearch({
             });
             await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
             if (wsManager) {
-              await wsManager.handleWebsiteAnalysis(researchId);
+              await wsManager.handleWebsiteAnalyzing(researchId, failedWebsite);
             }
           }
           continue;

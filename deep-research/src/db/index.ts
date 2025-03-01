@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import { ResearchData, SerpQuery, FollowUpQnA, Report, InformationCrunchingResult, ScrapedWebsite } from './schema'
+import { WebsiteStatus } from '../types'
 
 // Match the final_database_schema from response-schema.ts
 interface DBSchema {
@@ -254,6 +255,35 @@ class ResearchDB {
 
         await this.db.write();
         return true;
+    }
+
+    async updateWebsiteStatus(researchId: string, queryRank: number, website: WebsiteStatus): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return false;
+
+        const query = research.serpQueries.find(q => q.query_rank === queryRank);
+        if (!query) return false;
+
+        const websiteIndex = query.successful_scraped_websites.findIndex(w => w.id === website.id);
+        if (websiteIndex === -1) return false;
+
+        query.successful_scraped_websites[websiteIndex] = website;
+        await this.db.write();
+        return true;
+    }
+
+    async getSerpQueryByWebsiteId(researchId: string, websiteId: number): Promise<{ query_rank: number } | null> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return null;
+
+        for (const query of research.serpQueries) {
+            if (query.successful_scraped_websites.some(w => w.id === websiteId)) {
+                return { query_rank: query.query_rank };
+            }
+        }
+        return null;
     }
 }
 

@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { Server as WebSocketServer } from 'socket.io';
 import { ResearchDB } from './db';
+import { WebsiteStatus } from './types';
 
 export interface ResearchState {
     id: string;
@@ -32,6 +33,18 @@ export class WebSocketManager {
 
     private setupSocketHandlers() {
         this.io.on('connection', (socket) => {
+            console.log('Client connected:', socket.id);
+
+            // Handle request for ongoing research state
+            socket.on('request-ongoing-research', async () => {
+                if (this.currentResearch) {
+                    const data = await this.db?.getResearchData(this.currentResearch.id);
+                    if (data) {
+                        socket.emit('ongoing-research-state', data);
+                    }
+                }
+            });
+
             socket.on('stop-research', () => {
                 if (this.currentResearch) {
                     this.currentResearch.controller.abort();
@@ -68,21 +81,53 @@ export class WebSocketManager {
         await this.emitWithData('new_serp_query', researchId);
     }
 
-    public async handleWebsiteScraped(researchId: string) {
-        await this.emitWithData('new_website_successfully_scrape', researchId);
+    public async handleGotWebsitesFromSerpQuery(researchId: string) {
+        await this.emitWithData('got_websites_from_serp_query', researchId);
     }
 
-    public async handleWebsiteAnalysis(researchId: string) {
-        await this.emitWithData('website_analyzer_agent', researchId);
+    public async handleWebsiteScraping(researchId: string, website: WebsiteStatus) {
+        // Ensure website status is updated in DB before emitting
+        if (this.db) {
+            const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
+            if (query) {
+                website.status = 'scraping';
+                await this.db.updateWebsiteStatus(researchId, query.query_rank, website);
+                await this.emitWithData('scraping_a_website', researchId);
+            }
+        }
+    }
+
+    public async handleWebsiteAnalyzing(researchId: string, website: WebsiteStatus) {
+        // Update status to analyzing in DB before emitting
+        if (this.db) {
+            const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
+            if (query) {
+                website.status = 'analyzing';
+                await this.db.updateWebsiteStatus(researchId, query.query_rank, website);
+                await this.emitWithData('analyzing_a_website', researchId);
+            }
+        }
+    }
+
+    public async handleWebsiteAnalyzed(researchId: string, website: WebsiteStatus) {
+        // Update status to analyzed in DB before emitting
+        if (this.db) {
+            const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
+            if (query) {
+                website.status = 'analyzed';
+                await this.db.updateWebsiteStatus(researchId, query.query_rank, website);
+                await this.emitWithData('analyzed_a_website', researchId);
+            }
+        }
     }
 
     // Stage 3: Information Crunching Process
     public async handleCrunchingStart(researchId: string) {
-        await this.emitWithData('crunching_serp_query', researchId);
+        await this.emitWithData('crunching_a_serp_query', researchId);
     }
 
     public async handleCrunchingComplete(researchId: string) {
-        await this.emitWithData('crunched_information', researchId);
+        await this.emitWithData('crunched_a_serp_query', researchId);
     }
 
     // Stage 4: Report Writing Process
@@ -92,11 +137,16 @@ export class WebSocketManager {
 
     public async handleReportWritingComplete(researchId: string) {
         await this.emitWithData('report_writing_successfull', researchId);
+        // Research is complete, clear current research
+        if (this.currentResearch?.id === researchId) {
+            this.currentResearch = null;
+        }
     }
 
     // Error handling
     public async handleResearchError(error: Error) {
         if (this.currentResearch) {
+            this.currentResearch.status = 'failed';
             await this.emitWithData('research_error', this.currentResearch.id);
             this.currentResearch = null;
         }

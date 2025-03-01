@@ -121,3 +121,13 @@ export interface QueryData {
     objective: string;
     query_rank: number;
 }
+
+export interface WebsiteStatus {
+    id: number;
+    url: string;
+    title: string;
+    description: string;
+    status: 'scraping' | 'analyzing' | 'analyzed';
+    isRelevant: number;
+    extracted_from_website_analyzer_agent: string[];
+}
