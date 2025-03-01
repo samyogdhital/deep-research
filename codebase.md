@@ -293,3 +293,47 @@ Here are all the processes and their corresponding events with exact keyword tha
 - While firing "got_websites_from_serp_query", "scraping_a_website", "analyzing_a_website", "analyzed_a_website" these events, first when we get the new serp query from query-generator agent, we fire a single event called "new_serp_query". Then after that we hit that query to the searxng api. Now we get the list of websites from searxng webites, we fire another event "got_websites_from_serp_query". Then understand this, say we got "X" number of websites under that query. when we get the list of websites from a serp query, we fire "X" numbers of "scraping_a_website" event. As these individual websites are successfully scraped, we fire "X" number of "analyzing_a_website" event. Then after the response from website analyzer website is successful, we fire, "analyzed_a_website" for each of these websites. So "scraping_a_website", "analyzing_a_website", "analyzed_a_website" these 3 events are events fired for individual websites ok? Keep that in mind. And if you go inside @response-schema.ts file inside deep-research/src/db folder, With each successful step, the status of individual website object inside "successful_scraped_websites" key inside db, changes from "scraping" to "analyzing" and finally "analyzed". Please read that file to understand this concept in depth.
 - And for information crunching, its straight forward, we fire an event before information crunching per query, and fire another event after information crunching was successful. Save everything to db before firing event.
 - On frontend nextjs side, backend will fire, "generating_followups" and "followups_generated" Research Start Process, we may catch that on frontend but we don't need to show that on the frontend side. On frontend the actual ui of realtime event will start after deep research process is started, after the user submits the answer of followup questions and the deep research is literally started.
+
+### Websocket logic and implemenation on frontend side.
+ Detailed Front-End Requirements for Real-Time Research Logs:
+ 1. Research Persistence Across Browser Tabs:
+    - Research processes can last from 1 to 2 hours.
+    - If the initiating browser tab is closed, the next time a user opens a tab, the UI must display:
+         • The complete historical log of events that have already occurred.
+         • The real-time logs continuing from where they left off.
+
+ 2. Sidebar Navigation Structure:
+    - The sidebar should include:
+         • Standard report sections for past research (e.g., "Today", "Previous 7 Days", "Previous 30 Days").
+         • An additional "Ongoing Research" section dedicated solely to research processes currently in progress.
+    - For ongoing research processes:
+         • Display a skeleton loader for each active research.
+         • Each skeleton loader should match the exact width and height of the report title element.
+
+ 3. Handling Ongoing Research UI Interaction:
+    - In any browser tab (even those that did not initiate the research):
+         • The "Ongoing Research" section must visibly show the appropriate number of skeleton loaders corresponding to the number of active research processes.
+    - When a user clicks on an individual skeleton loader:
+         • The UI should immediately display the real-time logs for the selected research.
+         • These logs must include all events from query generation, website scraping, information crunching, data extraction, and report writing.
+
+ 4. Websocket Events and Data Synchronization:
+    - Each time an event occurs on the backend:
+         • The event details are first saved to the database.
+         • After successful database update, a websocket event is fired with the complete snapshot of the current database state.
+    - The payload of each websocket event adheres strictly to the fixed database schema defined in response-schema.ts:
+         • The schema remains constant across all events from research initiation to report writing.
+         • Although the data values update as new events occur, the structure (keys and types) is always consistent.
+    - The front-end must use this snapshot to update the UI in real time.
+
+ 5. Isolation of Research Logs:
+    - When switching between different ongoing research processes (by clicking on different skeleton loaders):
+         • The UI must cleanly update to show only the logs of the selected research.
+         • Logs from different research processes should never mix or collide.
+
+ Summary:
+ The front-end implementation must:
+    - Persist and restore full research logs across browser sessions.
+    - Clearly segregate past reports and ongoing research in the sidebar.
+    - Dynamically update real-time logs based on websocket events that deliver a database snapshot.
+    - Ensure that selecting a specific ongoing research item shows its corresponding log history without interference from others.
