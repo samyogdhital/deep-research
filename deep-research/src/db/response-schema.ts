@@ -31,7 +31,7 @@ const final_database_schema = {
                     url: "https://www.example.com",
                     title: "Title of the website which we get from searxng reponse.",
                     description: "Description of the website which we also get from searxng reponse.",
-                    status: "scraping" | "analyzing" | "analyzed",  // Status will be scraping if we started scraping for this this website and analyzing if we have scraped the website and now analyzing it. If the analyzed is successfull then we push the information to extracted_from_website_analyzer_agent for this website.
+                    status: "scraping" | "analyzing" | "analyzed",  // Status will be "scraping" if we started scraping this individual website. And it will change to "analyzing" if we scraped the website already and are now analyzing it. Finally. if the website is analyzed through website analyzer agent successfully, the status should change to "analyzed". Right then, the response from website analyzer agent will be pushed to "extracted_from_website_analyzer_agent" key of for this website object inside DB.
                     isRelevant: "Website analyzer agent will give absolute score from 1 to 10 based on the relevance of the content in the website to fully met the objective.",
                     extracted_from_website_analyzer_agent: [
                         "most relevent information that was extracted from the website that  met the above objective.",
