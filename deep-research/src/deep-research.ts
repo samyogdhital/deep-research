@@ -15,19 +15,26 @@ interface SerpQuery {
   objective: string;
   query_rank: number;
   successful_scraped_websites: Array<{
+    id: number;
     url: string;
     title: string;
     description: string;
+    status: 'scraping' | 'analyzing' | 'analyzed';
     isRelevant: number;
     extracted_from_website_analyzer_agent: string[];
   }>;
-  failedWebsites: string[];
+  failedWebsites: Array<{
+    website: string;
+    stage: 'scraping' | 'analyzing';
+  }>;
 }
 
 interface ScrapedWebsite {
+  id: number;
   url: string;
   title: string;
   description: string;
+  status: 'scraping' | 'analyzing' | 'analyzed';
   isRelevant: number;
   extracted_from_website_analyzer_agent: string[];
 }
@@ -92,7 +99,7 @@ export async function deepResearch({
     for (const query of queries) {
       if (signal?.aborted) throw new Error('Research aborted');
 
-      // Save SERP query to database first
+      // Initialize SERP query
       const serpQuery: SerpQuery = {
         query: query.query,
         objective: query.objective,
@@ -107,37 +114,48 @@ export async function deepResearch({
         await wsManager.handleNewSerpQuery(researchId);
       }
 
-      // Search and scrape websites
+      // Search for websites
       const searchResults: SearxResult[] = await searxng.search(query.query);
       const limitedResults = searchResults.slice(0, MAX_RESULTS_PER_QUERY);
 
+      // Initialize website objects with IDs immediately
+      serpQuery.successful_scraped_websites = limitedResults.map((result, index) => ({
+        id: index + 1,
+        url: result.url,
+        title: result.title || result.url,
+        description: result.content || '',
+        status: 'scraping',
+        isRelevant: 0,
+        extracted_from_website_analyzer_agent: []
+      }));
+
+      // Save initial website objects and emit event
+      await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+      if (wsManager) {
+        await wsManager.handleNewSerpQuery(researchId);
+      }
+
+      // Scrape websites
       console.log(`Scraping ${limitedResults.length} URLs for query "${query.query}"`);
       const scrapedContents = await firecrawl.scrapeWebsites(limitedResults.map(r => r.url));
 
-      // Map scraped content and update DB before emitting events
-      const successfulScrapes: EnhancedSearchResult[] = scrapedContents.map(sc => {
-        const searchResult = limitedResults.find(r => r.url === sc.url);
-        return {
-          ...searchResult!,
-          ...sc
-        };
-      });
-
       // Handle failed scrapes
-      const scrapeFails = limitedResults
+      const failedScrapes = limitedResults
         .filter(r => !scrapedContents.some(sc => sc.url === r.url))
-        .map(r => r.url);
+        .map(r => ({
+          website: r.url,
+          stage: 'scraping' as const
+        }));
 
-      failedUrls.push(...scrapeFails);
+      // Remove failed websites from successful_scraped_websites
+      serpQuery.successful_scraped_websites = serpQuery.successful_scraped_websites
+        .filter(w => !failedScrapes.some(f => f.website === w.url));
+      serpQuery.failedWebsites = failedScrapes;
 
-      // Update DB with failed URLs
-      await db.updateSerpQueryResults(researchId, serpQuery.query_rank, [], scrapeFails);
-
-      // Emit website scraped events after DB update
+      // Update DB and emit event for failed scrapes
+      await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
       if (wsManager) {
-        for (const content of scrapedContents) {
-          await wsManager.handleWebsiteScraped(researchId);
-        }
+        await wsManager.handleWebsiteScraped(researchId);
       }
 
       // Process successful scrapes
@@ -146,26 +164,32 @@ export async function deepResearch({
       let queryWords = 0;
 
       // Analyze websites
-      for (const content of successfulScrapes) {
+      for (const content of scrapedContents) {
         try {
+          // Find corresponding website object
+          const website = serpQuery.successful_scraped_websites.find(w => w.url === content.url);
+          if (!website) continue;
+
+          // Update status to analyzing
+          website.status = 'analyzing';
+          await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+          if (wsManager) {
+            await wsManager.handleWebsiteAnalysis(researchId);
+          }
+
           const analysis = await websiteAnalyzer.analyzeContent({
             url: content.url,
             markdown: content.markdown
           }, query.objective);
 
           if (analysis?.meetsObjective) {
-            // Save to DB first
-            const scrapedWebsite: ScrapedWebsite = {
-              url: content.url,
-              title: content.title,
-              description: content.description || '',
-              isRelevant: analysis.meetsObjective ? 8 : 5,
-              extracted_from_website_analyzer_agent: [analysis.content]
-            };
-            serpQuery.successful_scraped_websites.push(scrapedWebsite);
-            await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+            // Update website with analysis results
+            website.status = 'analyzed';
+            website.isRelevant = analysis.meetsObjective ? 8 : 5;
+            website.extracted_from_website_analyzer_agent = [analysis.content];
 
-            // Emit website analysis event after DB update
+            // Save to DB and emit event
+            await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
             if (wsManager) {
               await wsManager.handleWebsiteAnalysis(researchId);
             }
@@ -181,7 +205,7 @@ export async function deepResearch({
               sourceText: analysis.sourceText
             });
 
-            // Crunch information if needed
+            // Handle information crunching
             if (totalWordsAcrossQueries >= MAX_WORDS) {
               if (wsManager) {
                 await wsManager.handleCrunchingStart(researchId);
@@ -194,7 +218,6 @@ export async function deepResearch({
               );
 
               if (crunchedInfo) {
-                // Save to DB first
                 const crunchingResult: InformationCrunchingResult = {
                   query_rank: serpQuery.query_rank,
                   crunched_information: [{
@@ -204,12 +227,10 @@ export async function deepResearch({
                 };
                 await db.addCrunchedInformation(researchId, crunchingResult);
 
-                // Emit crunching complete event after DB save
                 if (wsManager) {
                   await wsManager.handleCrunchingComplete(researchId);
                 }
 
-                // Update results
                 results = results.filter(r => !queryResults.some(qr => qr.sourceUrl === r.sourceUrl));
                 results.push({
                   content: crunchedInfo.content,
@@ -224,9 +245,20 @@ export async function deepResearch({
           }
         } catch (error) {
           console.error(`Failed to analyze ${content.url}:`, error);
-          failedUrls.push(content.url);
-          serpQuery.failedWebsites.push(content.url);
-          await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+
+          // Move website to failed list with analyzing stage
+          const failedWebsite = serpQuery.successful_scraped_websites.find(w => w.url === content.url);
+          if (failedWebsite) {
+            serpQuery.successful_scraped_websites = serpQuery.successful_scraped_websites.filter(w => w.url !== content.url);
+            serpQuery.failedWebsites.push({
+              website: content.url,
+              stage: 'analyzing'
+            });
+            await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+            if (wsManager) {
+              await wsManager.handleWebsiteAnalysis(researchId);
+            }
+          }
           continue;
         }
       }

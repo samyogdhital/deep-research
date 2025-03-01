@@ -7,10 +7,12 @@ export interface FollowUpQnA {
 }
 
 export interface ScrapedWebsite {
+    id: number;
     url: string;
     title: string;
     description: string;
-    isRelevant: number; // Score from 1-10
+    status: 'scraping' | 'analyzing' | 'analyzed';
+    isRelevant: number;
     extracted_from_website_analyzer_agent: string[];
 }
 
@@ -18,8 +20,19 @@ export interface SerpQuery {
     query: string;
     objective: string;
     query_rank: number;
-    successful_scraped_websites: ScrapedWebsite[];
-    failedWebsites: string[];
+    successful_scraped_websites: Array<{
+        id: number;
+        url: string;
+        title: string;
+        description: string;
+        status: 'scraping' | 'analyzing' | 'analyzed';
+        isRelevant: number;
+        extracted_from_website_analyzer_agent: string[];
+    }>;
+    failedWebsites: Array<{
+        website: string;
+        stage: 'scraping' | 'analyzing';
+    }>;
 }
 
 export interface CrunchedInformation {

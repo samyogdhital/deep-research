@@ -23,13 +23,18 @@ interface DBSchema {
             objective: string;
             query_rank: number;
             successful_scraped_websites: Array<{
+                id: number;
                 url: string;
                 title: string;
                 description: string;
+                status: 'scraping' | 'analyzing' | 'analyzed';
                 isRelevant: number;
                 extracted_from_website_analyzer_agent: string[];
             }>;
-            failedWebsites: string[];
+            failedWebsites: Array<{
+                website: string;
+                stage: 'scraping' | 'analyzing';
+            }>;
         }>;
         information_crunching_agent: {
             serpQueries: Array<{
@@ -143,7 +148,12 @@ class ResearchDB {
         return true;
     }
 
-    async updateSerpQueryResults(researchId: string, queryRank: number, successfulWebsites: ScrapedWebsite[], failedWebsites: string[]): Promise<boolean> {
+    async updateSerpQueryResults(
+        researchId: string,
+        queryRank: number,
+        successfulWebsites: ScrapedWebsite[],
+        failedWebsites: Array<{ website: string; stage: 'scraping' | 'analyzing' }>
+    ): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         if (!research) return false;

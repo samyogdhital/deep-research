@@ -27,9 +27,11 @@ const final_database_schema = {
             query_rank: 1, // At what order it was called? Was it the first or last serp query? It is alos the identifyer of this query.
             successful_scraped_websites: [
                 {
+                    id: "unique id for this website", // Since we are optimistically saving all the websites we get under a serp query rightaway we get the list, some website scrapping may failed, if so, we will take the id of that website object and remove that object and include it under failedWebsites array just as a string..
                     url: "https://www.example.com",
                     title: "Title of the website which we get from searxng reponse.",
                     description: "Description of the website which we also get from searxng reponse.",
+                    status: "scraping" | "analyzing" | "analyzed",  // Status will be scraping if we started scraping for this this website and analyzing if we have scraped the website and now analyzing it. If the analyzed is successfull then we push the information to extracted_from_website_analyzer_agent for this website.
                     isRelevant: "Website analyzer agent will give absolute score from 1 to 10 based on the relevance of the content in the website to fully met the objective.",
                     extracted_from_website_analyzer_agent: [
                         "most relevent information that was extracted from the website that  met the above objective.",
@@ -39,7 +41,12 @@ const final_database_schema = {
 
                 }
             ],
-            failedWebsites: ["array of string of websites that were failed to scrape and we also did not invoke website analyzer agent on them. They were also not included for information crunching and report writing."],
+            failedWebsites: [
+                {
+                    website: "failed webstie url",
+                    stage: "scraping" | "analyzing", // This will be the stage at which it failed. If the website failed when scraping then the stage will be scraping if the website failed when scraping was complete and the website analyzing agent was invoked and it failed there then we give it analyzing.
+                }
+            ]
         }
 
     ],
