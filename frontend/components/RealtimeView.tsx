@@ -171,21 +171,55 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
 
     // Handle website status updates
     socket.on('new_serp_query', (data: ResearchData) => {
+      console.log('New SERP query received:', data.serpQueries);
+      // Find the query in the current data that matches the new data
+      const updatedQuery = data.serpQueries.find((q) =>
+        researchData?.serpQueries.some(
+          (existing) => existing.query_rank === q.query_rank
+        )
+      );
+
+      if (
+        updatedQuery &&
+        selectedQuery?.query_rank === updatedQuery.query_rank
+      ) {
+        // If we're currently viewing this query, update it
+        setSelectedQuery(updatedQuery);
+      }
+
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
 
     socket.on('scraping_a_website', (data: ResearchData) => {
+      console.log('Website scraping update:', data.serpQueries);
+      const updatedQuery = data.serpQueries.find(
+        (q) => selectedQuery?.query_rank === q.query_rank
+      );
+      if (updatedQuery) setSelectedQuery(updatedQuery);
+
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
 
     socket.on('analyzing_a_website', (data: ResearchData) => {
+      console.log('Website analyzing update:', data.serpQueries);
+      const updatedQuery = data.serpQueries.find(
+        (q) => selectedQuery?.query_rank === q.query_rank
+      );
+      if (updatedQuery) setSelectedQuery(updatedQuery);
+
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
 
     socket.on('analyzed_a_website', (data: ResearchData) => {
+      console.log('Website analyzed update:', data.serpQueries);
+      const updatedQuery = data.serpQueries.find(
+        (q) => selectedQuery?.query_rank === q.query_rank
+      );
+      if (updatedQuery) setSelectedQuery(updatedQuery);
+
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
@@ -205,24 +239,115 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
   const updateNodesWithData = useCallback((queries: SerpQuery[]) => {
     setQueryNodes((prev) => {
       const updated = [...prev];
+
       queries.forEach((query) => {
         const nodeIndex = updated.findIndex((n) => n.rank === query.query_rank);
         if (nodeIndex !== -1) {
-          updated[nodeIndex] = {
-            ...updated[nodeIndex],
-            data: query,
-            isEnabled: true,
-          };
+          const existingNode = updated[nodeIndex];
+
+          // If node already has data and is enabled, merge the data
+          if (existingNode.data && existingNode.isEnabled) {
+            updated[nodeIndex] = {
+              ...existingNode,
+              data: {
+                ...existingNode.data,
+                successful_scraped_websites: [
+                  ...existingNode.data.successful_scraped_websites,
+                  ...query.successful_scraped_websites.filter(
+                    (newSite) =>
+                      !existingNode.data?.successful_scraped_websites.some(
+                        (existingSite) => existingSite.url === newSite.url
+                      )
+                  ),
+                ],
+                failedWebsites: [
+                  ...(existingNode.data.failedWebsites || []),
+                  ...(query.failedWebsites?.filter(
+                    (newSite) =>
+                      !existingNode.data?.failedWebsites?.some(
+                        (existingSite) =>
+                          existingSite.website === newSite.website
+                      )
+                  ) || []),
+                ],
+              },
+            };
+          } else {
+            // If node doesn't have data yet, just set the new data
+            updated[nodeIndex] = {
+              ...existingNode,
+              data: query,
+              isEnabled: true,
+            };
+          }
         }
       });
+
       return updated;
+    });
+
+    // Update research data while preserving existing data
+    setResearchData((prev) => {
+      if (!prev) return prev;
+
+      const updatedQueries = [...prev.serpQueries];
+
+      queries.forEach((query) => {
+        const existingIndex = updatedQueries.findIndex(
+          (q) => q.query_rank === query.query_rank
+        );
+
+        if (existingIndex !== -1) {
+          // Update existing query while preserving its data
+          updatedQueries[existingIndex] = {
+            ...updatedQueries[existingIndex],
+            successful_scraped_websites: [
+              ...updatedQueries[existingIndex].successful_scraped_websites,
+              ...query.successful_scraped_websites.filter(
+                (newSite) =>
+                  !updatedQueries[
+                    existingIndex
+                  ].successful_scraped_websites.some(
+                    (existingSite) => existingSite.url === newSite.url
+                  )
+              ),
+            ],
+            failedWebsites: [
+              ...(updatedQueries[existingIndex].failedWebsites || []),
+              ...(query.failedWebsites?.filter(
+                (newSite) =>
+                  !updatedQueries[existingIndex].failedWebsites?.some(
+                    (existingSite) => existingSite.website === newSite.website
+                  )
+              ) || []),
+            ],
+          };
+        } else {
+          // Add new query
+          updatedQueries.push(query);
+        }
+      });
+
+      return {
+        ...prev,
+        serpQueries: updatedQueries,
+      };
     });
   }, []);
 
-  const handleQueryClick = useCallback((query: SerpQuery) => {
-    setSelectedQuery(query);
-    setIsSheetOpen(true);
-  }, []);
+  const handleQueryClick = useCallback(
+    (query: SerpQuery) => {
+      // Find the most up-to-date data for this query_rank
+      const currentQueryData = researchData?.serpQueries.find(
+        (q) => q.query_rank === query.query_rank
+      );
+
+      // Use the most up-to-date data if available, otherwise use the clicked query data
+      setSelectedQuery(currentQueryData || query);
+      setIsSheetOpen(true);
+    },
+    [researchData]
+  );
 
   const scrollToView = useCallback(() => {
     if (!treeRef.current) return;
