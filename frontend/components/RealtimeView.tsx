@@ -169,57 +169,47 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
       console.log('Connected to websocket');
     });
 
+    // Helper function to update selected query if it matches current query_rank
+    const updateSelectedQueryIfRelevant = (queries: SerpQuery[]) => {
+      if (!selectedQuery) return;
+
+      // Only look for updates for the currently selected query_rank
+      const updatedQuery = queries.find(
+        (q) => q.query_rank === selectedQuery.query_rank
+      );
+      if (!updatedQuery) return; // If no update for current query_rank, do nothing
+
+      // Compare if there are actual changes to avoid unnecessary updates
+      if (JSON.stringify(updatedQuery) !== JSON.stringify(selectedQuery)) {
+        setSelectedQuery(updatedQuery);
+      }
+    };
+
     // Handle website status updates
     socket.on('new_serp_query', (data: ResearchData) => {
       console.log('New SERP query received:', data.serpQueries);
-      // Find the query in the current data that matches the new data
-      const updatedQuery = data.serpQueries.find((q) =>
-        researchData?.serpQueries.some(
-          (existing) => existing.query_rank === q.query_rank
-        )
-      );
-
-      if (
-        updatedQuery &&
-        selectedQuery?.query_rank === updatedQuery.query_rank
-      ) {
-        // If we're currently viewing this query, update it
-        setSelectedQuery(updatedQuery);
-      }
-
+      updateSelectedQueryIfRelevant(data.serpQueries);
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
 
     socket.on('scraping_a_website', (data: ResearchData) => {
       console.log('Website scraping update:', data.serpQueries);
-      const updatedQuery = data.serpQueries.find(
-        (q) => selectedQuery?.query_rank === q.query_rank
-      );
-      if (updatedQuery) setSelectedQuery(updatedQuery);
-
+      updateSelectedQueryIfRelevant(data.serpQueries);
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
 
     socket.on('analyzing_a_website', (data: ResearchData) => {
       console.log('Website analyzing update:', data.serpQueries);
-      const updatedQuery = data.serpQueries.find(
-        (q) => selectedQuery?.query_rank === q.query_rank
-      );
-      if (updatedQuery) setSelectedQuery(updatedQuery);
-
+      updateSelectedQueryIfRelevant(data.serpQueries);
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
 
     socket.on('analyzed_a_website', (data: ResearchData) => {
       console.log('Website analyzed update:', data.serpQueries);
-      const updatedQuery = data.serpQueries.find(
-        (q) => selectedQuery?.query_rank === q.query_rank
-      );
-      if (updatedQuery) setSelectedQuery(updatedQuery);
-
+      updateSelectedQueryIfRelevant(data.serpQueries);
       updateNodesWithData(data.serpQueries);
       setResearchData(data);
     });
@@ -233,7 +223,7 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [selectedQuery]); // Keep selectedQuery in dependencies to maintain reference
 
   // Update nodes with incoming data
   const updateNodesWithData = useCallback((queries: SerpQuery[]) => {
