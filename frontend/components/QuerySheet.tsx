@@ -1,4 +1,9 @@
-import { SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
 import type { SerpQuery } from '@deep-research/db/schema';
 import { CircleIcon, CheckCircleIcon, XCircleIcon } from 'lucide-react';
 
@@ -13,9 +18,9 @@ export function QuerySheet({ query, isOpen, onOpenChange }: QuerySheetProps) {
     <SheetContent className='w-[600px] sm:w-[800px] overflow-y-auto'>
       <SheetHeader>
         <SheetTitle className='text-xl font-bold'>{query.query}</SheetTitle>
-        <p className='text-sm text-gray-500 dark:text-gray-400 mt-2'>
+        <SheetDescription className='text-sm text-gray-500 dark:text-gray-400 mt-2'>
           {query.objective}
-        </p>
+        </SheetDescription>
       </SheetHeader>
 
       <div className='mt-8'>
@@ -87,10 +92,10 @@ export function QuerySheet({ query, isOpen, onOpenChange }: QuerySheetProps) {
               Failed Websites
             </h3>
             <ul className='list-disc list-inside space-y-1 text-sm text-gray-500 dark:text-gray-400'>
-              {query.failedWebsites.map((url, index) => (
+              {query.failedWebsites.map((failedWebsite, index) => (
                 <li key={index} className='flex items-center gap-2'>
                   <XCircleIcon className='w-4 h-4 text-red-500' />
-                  {url}
+                  <span>{failedWebsite.website}</span>
                 </li>
               ))}
             </ul>

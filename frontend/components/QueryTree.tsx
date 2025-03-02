@@ -7,6 +7,7 @@ interface QueryNode {
   depth: number;
   rank: number;
   parentRank: number;
+  children: QueryNode[];
   data?: SerpQuery;
   isEnabled: boolean;
 }
@@ -24,58 +25,107 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
     return acc;
   }, {} as Record<number, QueryNode[]>);
 
+  // Get max depth
   const maxDepth = Math.max(...Object.keys(nodesByDepth).map(Number));
 
-  return (
-    <div className='relative'>
-      {Object.entries(nodesByDepth).map(([depth, depthNodes]) => (
-        <div
-          key={depth}
-          className={cn(
-            'flex items-center justify-center gap-4 mb-12',
-            'relative'
-          )}
-        >
-          {depthNodes.map((node) => (
-            <div key={node.id} className='relative'>
-              {/* Draw connection line to parent */}
-              {node.parentRank > 0 && (
-                <div
-                  className='absolute w-px bg-gray-300 dark:bg-gray-700 transform origin-top'
-                  style={{
-                    top: '-48px', // Adjust based on your layout
-                    left: '50%',
-                    height: '48px',
-                  }}
-                />
-              )}
+  // Constants for layout
+  const NODE_WIDTH = 120;
+  const NODE_HEIGHT = 40;
+  const LEVEL_HEIGHT = 100;
+  const SVG_PADDING = 40;
 
-              {/* Query Node */}
-              <button
-                onClick={() => node.data && onQueryClick(node.data)}
-                disabled={!node.isEnabled}
-                className={cn(
-                  'relative px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-                  'border-2',
-                  node.isEnabled
-                    ? 'border-[#007e81] bg-white dark:bg-[#202121] text-gray-900 dark:text-white hover:bg-[#007e81] hover:text-white cursor-pointer'
-                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed',
-                  'min-w-[200px] text-center'
+  // Calculate total width needed
+  const maxNodesInAnyLevel = Math.max(
+    ...Object.values(nodesByDepth).map((level) => level.length)
+  );
+  const svgWidth = Math.max(1000, maxNodesInAnyLevel * (NODE_WIDTH + 40));
+  const svgHeight = maxDepth * LEVEL_HEIGHT + 2 * SVG_PADDING;
+
+  // Function to draw curved path between parent and child
+  const drawPath = (
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number
+  ) => {
+    const midY = (startY + endY) / 2;
+    return `M ${startX} ${startY} 
+            C ${startX} ${midY},
+              ${endX} ${midY},
+              ${endX} ${endY}`;
+  };
+
+  return (
+    <svg width={svgWidth} height={svgHeight} className='overflow-visible'>
+      {/* Draw connections first so they appear behind nodes */}
+      {Object.entries(nodesByDepth).map(([depth, depthNodes]) => {
+        const currentDepth = parseInt(depth);
+        if (currentDepth === maxDepth) return null;
+
+        const y1 = (currentDepth - 1) * LEVEL_HEIGHT + SVG_PADDING;
+        const y2 = currentDepth * LEVEL_HEIGHT + SVG_PADDING;
+        const levelWidth = svgWidth / depthNodes.length;
+
+        return depthNodes.map((node, i) => {
+          const startX = (i + 0.5) * levelWidth;
+          const nextLevelWidth =
+            svgWidth / (nodesByDepth[currentDepth + 1]?.length || 1);
+
+          return node.children.map((child, childIndex) => {
+            const childNodeIndex = nodesByDepth[currentDepth + 1].findIndex(
+              (n) => n.id === child.id
+            );
+            const endX = (childNodeIndex + 0.5) * nextLevelWidth;
+
+            return (
+              <path
+                key={`${node.id}-${child.id}`}
+                d={drawPath(
+                  startX,
+                  y1 + NODE_HEIGHT / 2,
+                  endX,
+                  y2 - NODE_HEIGHT / 2
                 )}
-              >
-                <span className='block truncate'>
+                stroke='rgb(249 115 22 / 0.3)'
+                strokeWidth={2}
+                fill='none'
+              />
+            );
+          });
+        });
+      })}
+
+      {/* Draw nodes */}
+      {Object.entries(nodesByDepth).map(([depth, depthNodes]) => {
+        const y = (parseInt(depth) - 1) * LEVEL_HEIGHT + SVG_PADDING;
+        const levelWidth = svgWidth / depthNodes.length;
+
+        return depthNodes.map((node, i) => {
+          const x = (i + 0.5) * levelWidth;
+
+          return (
+            <g
+              key={node.id}
+              transform={`translate(${x - NODE_WIDTH / 2}, ${y})`}
+            >
+              <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
+                <button
+                  onClick={() => node.data && onQueryClick(node.data)}
+                  disabled={!node.isEnabled}
+                  className={cn(
+                    'w-full h-full rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center',
+                    node.isEnabled
+                      ? 'bg-orange-500 text-white hover:bg-orange-600 cursor-pointer'
+                      : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                  )}
+                >
                   {node.data?.query || `Query ${node.rank}`}
-                </span>
-                {node.data && (
-                  <span className='text-xs text-gray-500 dark:text-gray-400 block truncate mt-1'>
-                    {node.data.objective}
-                  </span>
-                )}
-              </button>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
+                </button>
+              </foreignObject>
+            </g>
+          );
+        });
+      })}
+    </svg>
   );
 }
