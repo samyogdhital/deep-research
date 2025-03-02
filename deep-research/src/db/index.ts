@@ -23,6 +23,8 @@ interface DBSchema {
             query: string;
             objective: string;
             query_rank: number;
+            depth_level: number;
+            parent_query_rank: number;
             successful_scraped_websites: Array<{
                 id: number;
                 url: string;

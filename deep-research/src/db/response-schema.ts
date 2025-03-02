@@ -25,6 +25,8 @@ const final_database_schema = {
             query: "Query that was searched on searxng and used to find websites",
             objective: "Very detailed objective of this serp query so that if we get websites, we scrape that and then website analyzer agent can only extract the information that meets this objective.",
             query_rank: 1, // At what order it was called? Was it the first or last serp query? It is alos the identifyer of this query.
+            depth_level: 1, // At which depth level this query was generated
+            parent_query_rank: 0, // Which query from previous depth led to this query. 0 means it's from initial depth
             successful_scraped_websites: [
                 {
                     id: "unique id for this website", // Since we are optimistically saving all the websites we get under a serp query rightaway we get the list, some website scrapping may failed, if so, we will take the id of that website object and remove that object and include it under failedWebsites array just as a string..

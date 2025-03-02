@@ -14,6 +14,8 @@ interface SerpQuery {
   query: string;
   objective: string;
   query_rank: number;
+  depth_level: number;
+  parent_query_rank: number;
   successful_scraped_websites: Array<{
     id: number;
     url: string;
@@ -63,6 +65,7 @@ export async function deepResearch({
   parentTokenCount = 0,
   parentFindings = [],
   currentDepth = 1,
+  parentQueryRank = 0,
   wsManager
 }: {
   query_to_find_websites: string;
@@ -73,6 +76,7 @@ export async function deepResearch({
   parentTokenCount?: number;
   parentFindings?: TrackedLearning[];
   currentDepth?: number;
+  parentQueryRank?: number;
   wsManager?: WebSocketManager;
 }): Promise<ResearchResult> {
   // Input validation
@@ -99,11 +103,13 @@ export async function deepResearch({
     for (const query of queries) {
       if (signal?.aborted) throw new Error('Research aborted');
 
-      // Initialize SERP query
+      // Initialize SERP query with depth tracking
       const serpQuery: SerpQuery = {
         query: query.query,
         objective: query.objective,
         query_rank: queries.indexOf(query) + 1,
+        depth_level: currentDepth,
+        parent_query_rank: parentQueryRank,
         successful_scraped_websites: [],
         failedWebsites: []
       };
@@ -288,7 +294,7 @@ export async function deepResearch({
       // Handle recursive depth if we found relevant content
       if (queryResults.length > 0 && currentDepth < depth) {
         console.log(`Starting depth ${currentDepth + 1} research...`);
-        const nextBreadth = Math.ceil(breadth / 2); // Instead of Math.max(2, Math.floor(breadth / 2))
+        const nextBreadth = Math.ceil(breadth / 2);
         const contextString = [
           query_to_find_websites,
           `Current Findings: ${results.map(r => r.content).join('\n')}`,
@@ -304,6 +310,7 @@ export async function deepResearch({
           parentTokenCount: totalTokenCount,
           parentFindings: results,
           currentDepth: currentDepth + 1,
+          parentQueryRank: serpQuery.query_rank,
           wsManager
         });
 
