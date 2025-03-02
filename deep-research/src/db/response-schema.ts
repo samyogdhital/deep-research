@@ -24,9 +24,9 @@ const final_database_schema = {
         {
             query: "Query that was searched on searxng and used to find websites",
             objective: "Very detailed objective of this serp query so that if we get websites, we scrape that and then website analyzer agent can only extract the information that meets this objective.",
-            query_rank: 1, // At what order it was called? Was it the first or last serp query? It is alos the identifyer of this query.
+            query_timestamp: Date.now(), //Timestamp of when this query was generated. And this will be also use this to uniquely identify this query.
             depth_level: 1, // At which depth level this query was generated
-            parent_query_rank: 0, // Which query from previous depth led to this query. 0 means it's from initial depth
+            parent_query_timestamp: Date.now(), // Which query from previous depth led to this query. This helps understand which query was the parent of this query.
             successful_scraped_websites: [
                 {
                     id: "unique id for this website", // Since we are optimistically saving all the websites we get under a serp query rightaway we get the list, some website scrapping may failed, if so, we will take the id of that website object and remove that object and include it under failedWebsites array just as a string..
@@ -56,7 +56,7 @@ const final_database_schema = {
         // We crunch information per serp query. We consider all the relevent websites only above 7 relevance score from website analyzer agent here. And from them we even crunch down the information even more and even decrease the unrelevance information here. Only include the websites that are even more relevant to the objective. And this will be used for report writing.
         serpQueries: [
             {
-                query_rank: "Serp query's rank which is also the identifyer of that query.",
+                query_timestamp: "Serp query's timestamp, the time it was generated, which is also the identifyer of that query among all the serp queries inside serpQueries array.",
                 crunched_information: [{
                     url: "https://www.example.com",
                     content: ["Array of string of content that was crunched by the information crunching agent."],

@@ -22,9 +22,9 @@ interface DBSchema {
         serpQueries: Array<{
             query: string;
             objective: string;
-            query_rank: number;
+            query_timestamp: number;
             depth_level: number;
-            parent_query_rank: number;
+            parent_query_timestamp: number;
             successful_scraped_websites: Array<{
                 id: number;
                 url: string;
@@ -41,7 +41,7 @@ interface DBSchema {
         }>;
         information_crunching_agent: {
             serpQueries: Array<{
-                query_rank: number;
+                query_timestamp: number;
                 crunched_information: Array<{
                     url: string;
                     content: string[];
@@ -153,14 +153,14 @@ class ResearchDB {
 
     async updateSerpQueryResults(
         researchId: string,
-        queryRank: number,
+        queryTimestamp: number,
         successfulWebsites: ScrapedWebsite[],
         failedWebsites: Array<{ website: string; stage: 'scraping' | 'analyzing' }>
     ): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         if (!research) return false;
-        const query = research.serpQueries.find(q => q.query_rank === queryRank);
+        const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
         if (!query) return false;
         query.successful_scraped_websites = successfulWebsites;
         query.failedWebsites = failedWebsites;
@@ -259,12 +259,12 @@ class ResearchDB {
         return true;
     }
 
-    async updateWebsiteStatus(researchId: string, queryRank: number, website: WebsiteStatus): Promise<boolean> {
+    async updateWebsiteStatus(researchId: string, queryTimestamp: number, website: WebsiteStatus): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         if (!research) return false;
 
-        const query = research.serpQueries.find(q => q.query_rank === queryRank);
+        const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
         if (!query) return false;
 
         const websiteIndex = query.successful_scraped_websites.findIndex(w => w.id === website.id);
@@ -275,14 +275,14 @@ class ResearchDB {
         return true;
     }
 
-    async getSerpQueryByWebsiteId(researchId: string, websiteId: number): Promise<{ query_rank: number } | null> {
+    async getSerpQueryByWebsiteId(researchId: string, websiteId: number): Promise<{ query_timestamp: number } | null> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         if (!research) return null;
 
         for (const query of research.serpQueries) {
             if (query.successful_scraped_websites.some(w => w.id === websiteId)) {
-                return { query_rank: query.query_rank };
+                return { query_timestamp: query.query_timestamp };
             }
         }
         return null;

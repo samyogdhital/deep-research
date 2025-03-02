@@ -11,8 +11,10 @@ import type { ResearchData, SerpQuery } from '@deep-research/db/schema';
 interface QueryNode {
   id: string;
   depth: number;
-  rank: number;
-  parentRank: number;
+  timestamp: number;
+  parentTimestamp: number;
+  children: QueryNode[];
+  queryNumber: number;
   data?: SerpQuery;
   isEnabled: boolean;
 }
@@ -27,12 +29,12 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     // Generate tree and populate with initial data
     const nodes = generateQueryTree(initialData.depth, initialData.breadth);
 
-    // Update nodes with existing data
-    initialData.serpQueries.forEach((query) => {
-      const nodeIndex = nodes.findIndex((n) => n.rank === query.query_rank);
-      if (nodeIndex !== -1) {
-        nodes[nodeIndex] = {
-          ...nodes[nodeIndex],
+    // Update nodes with existing data in sequence
+    initialData.serpQueries.forEach((query, index) => {
+      const nodeToUpdate = nodes[index];
+      if (nodeToUpdate) {
+        nodes[index] = {
+          ...nodeToUpdate,
           data: query,
           isEnabled: true,
         };
@@ -169,49 +171,29 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
       console.log('Connected to websocket');
     });
 
-    // Helper function to update selected query if it matches current query_rank
-    const updateSelectedQueryIfRelevant = (queries: SerpQuery[]) => {
-      if (!selectedQuery) return;
-
-      // Only look for updates for the currently selected query_rank
-      const updatedQuery = queries.find(
-        (q) => q.query_rank === selectedQuery.query_rank
-      );
-      if (!updatedQuery) return; // If no update for current query_rank, do nothing
-
-      // Compare if there are actual changes to avoid unnecessary updates
-      if (JSON.stringify(updatedQuery) !== JSON.stringify(selectedQuery)) {
-        setSelectedQuery(updatedQuery);
-      }
-    };
-
     // Handle website status updates
     socket.on('new_serp_query', (data: ResearchData) => {
       console.log('New SERP query received:', data.serpQueries);
-      updateSelectedQueryIfRelevant(data.serpQueries);
-      updateNodesWithData(data.serpQueries);
       setResearchData(data);
+      updateNodesWithData(data.serpQueries);
     });
 
     socket.on('scraping_a_website', (data: ResearchData) => {
       console.log('Website scraping update:', data.serpQueries);
-      updateSelectedQueryIfRelevant(data.serpQueries);
-      updateNodesWithData(data.serpQueries);
       setResearchData(data);
+      updateNodesWithData(data.serpQueries);
     });
 
     socket.on('analyzing_a_website', (data: ResearchData) => {
       console.log('Website analyzing update:', data.serpQueries);
-      updateSelectedQueryIfRelevant(data.serpQueries);
-      updateNodesWithData(data.serpQueries);
       setResearchData(data);
+      updateNodesWithData(data.serpQueries);
     });
 
     socket.on('analyzed_a_website', (data: ResearchData) => {
       console.log('Website analyzed update:', data.serpQueries);
-      updateSelectedQueryIfRelevant(data.serpQueries);
-      updateNodesWithData(data.serpQueries);
       setResearchData(data);
+      updateNodesWithData(data.serpQueries);
     });
 
     socket.on('report_writing_successfull', (data: ResearchData) => {
@@ -223,120 +205,35 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     return () => {
       socket.disconnect();
     };
-  }, [selectedQuery]); // Keep selectedQuery in dependencies to maintain reference
+  }, []); // No dependencies needed since we don't use any external values
 
-  // Update nodes with incoming data
+  // Update nodes with incoming data - keeping the full logic as it's necessary for tree updates
   const updateNodesWithData = useCallback((queries: SerpQuery[]) => {
     setQueryNodes((prev) => {
       const updated = [...prev];
 
-      queries.forEach((query) => {
-        const nodeIndex = updated.findIndex((n) => n.rank === query.query_rank);
-        if (nodeIndex !== -1) {
-          const existingNode = updated[nodeIndex];
-
-          // If node already has data and is enabled, merge the data
-          if (existingNode.data && existingNode.isEnabled) {
-            updated[nodeIndex] = {
-              ...existingNode,
-              data: {
-                ...existingNode.data,
-                successful_scraped_websites: [
-                  ...existingNode.data.successful_scraped_websites,
-                  ...query.successful_scraped_websites.filter(
-                    (newSite) =>
-                      !existingNode.data?.successful_scraped_websites.some(
-                        (existingSite) => existingSite.url === newSite.url
-                      )
-                  ),
-                ],
-                failedWebsites: [
-                  ...(existingNode.data.failedWebsites || []),
-                  ...(query.failedWebsites?.filter(
-                    (newSite) =>
-                      !existingNode.data?.failedWebsites?.some(
-                        (existingSite) =>
-                          existingSite.website === newSite.website
-                      )
-                  ) || []),
-                ],
-              },
-            };
-          } else {
-            // If node doesn't have data yet, just set the new data
-            updated[nodeIndex] = {
-              ...existingNode,
-              data: query,
-              isEnabled: true,
-            };
-          }
+      // Update nodes sequentially like in initial load
+      queries.forEach((query, index) => {
+        const nodeToUpdate = updated[index];
+        if (nodeToUpdate) {
+          updated[index] = {
+            ...nodeToUpdate,
+            data: query,
+            isEnabled: true,
+          };
         }
       });
 
       return updated;
     });
-
-    // Update research data while preserving existing data
-    setResearchData((prev) => {
-      if (!prev) return prev;
-
-      const updatedQueries = [...prev.serpQueries];
-
-      queries.forEach((query) => {
-        const existingIndex = updatedQueries.findIndex(
-          (q) => q.query_rank === query.query_rank
-        );
-
-        if (existingIndex !== -1) {
-          // Update existing query while preserving its data
-          updatedQueries[existingIndex] = {
-            ...updatedQueries[existingIndex],
-            successful_scraped_websites: [
-              ...updatedQueries[existingIndex].successful_scraped_websites,
-              ...query.successful_scraped_websites.filter(
-                (newSite) =>
-                  !updatedQueries[
-                    existingIndex
-                  ].successful_scraped_websites.some(
-                    (existingSite) => existingSite.url === newSite.url
-                  )
-              ),
-            ],
-            failedWebsites: [
-              ...(updatedQueries[existingIndex].failedWebsites || []),
-              ...(query.failedWebsites?.filter(
-                (newSite) =>
-                  !updatedQueries[existingIndex].failedWebsites?.some(
-                    (existingSite) => existingSite.website === newSite.website
-                  )
-              ) || []),
-            ],
-          };
-        } else {
-          // Add new query
-          updatedQueries.push(query);
-        }
-      });
-
-      return {
-        ...prev,
-        serpQueries: updatedQueries,
-      };
-    });
   }, []);
 
   const handleQueryClick = useCallback(
     (query: SerpQuery) => {
-      // Find the most up-to-date data for this query_rank
-      const currentQueryData = researchData?.serpQueries.find(
-        (q) => q.query_rank === query.query_rank
-      );
-
-      // Use the most up-to-date data if available, otherwise use the clicked query data
-      setSelectedQuery(currentQueryData || query);
+      setSelectedQuery(query);
       setIsSheetOpen(true);
     },
-    [researchData]
+    [] // No dependencies needed since we're just setting state
   );
 
   const scrollToView = useCallback(() => {
@@ -393,10 +290,14 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
         )}
 
         {/* Query Details Sheet */}
-        {selectedQuery && (
+        {selectedQuery && researchData && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
             <QuerySheet
-              query={selectedQuery}
+              query={
+                researchData.serpQueries.find(
+                  (q) => q.query_timestamp === selectedQuery.query_timestamp
+                ) || selectedQuery
+              }
               isOpen={isSheetOpen}
               onOpenChange={setIsSheetOpen}
             />

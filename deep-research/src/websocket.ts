@@ -91,7 +91,7 @@ export class WebSocketManager {
             const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
             if (query) {
                 website.status = 'scraping';
-                await this.db.updateWebsiteStatus(researchId, query.query_rank, website);
+                await this.db.updateWebsiteStatus(researchId, query.query_timestamp, website);
                 await this.emitWithData('scraping_a_website', researchId);
             }
         }
@@ -103,7 +103,7 @@ export class WebSocketManager {
             const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
             if (query) {
                 website.status = 'analyzing';
-                await this.db.updateWebsiteStatus(researchId, query.query_rank, website);
+                await this.db.updateWebsiteStatus(researchId, query.query_timestamp, website);
                 await this.emitWithData('analyzing_a_website', researchId);
             }
         }
@@ -115,7 +115,7 @@ export class WebSocketManager {
             const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
             if (query) {
                 website.status = 'analyzed';
-                await this.db.updateWebsiteStatus(researchId, query.query_rank, website);
+                await this.db.updateWebsiteStatus(researchId, query.query_timestamp, website);
                 await this.emitWithData('analyzed_a_website', researchId);
             }
         }

@@ -107,7 +107,7 @@ export interface WebsiteResult {
 }
 
 export interface CrunchedInfo {
-    query_rank: number;
+    query_timestamp: number;
     crunched_information: Array<{
         url: string;
         content: string[];
@@ -119,7 +119,7 @@ export interface QueryData {
     url: string;
     content: string;
     objective: string;
-    query_rank: number;
+    query_timestamp: number;
 }
 
 export interface WebsiteStatus {

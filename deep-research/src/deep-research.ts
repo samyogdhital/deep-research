@@ -13,9 +13,9 @@ import { WebSocketManager } from './websocket';
 interface SerpQuery {
   query: string;
   objective: string;
-  query_rank: number;
+  query_timestamp: number;
   depth_level: number;
-  parent_query_rank: number;
+  parent_query_timestamp: number;
   successful_scraped_websites: Array<{
     id: number;
     url: string;
@@ -42,7 +42,7 @@ interface ScrapedWebsite {
 }
 
 interface InformationCrunchingResult {
-  query_rank: number;
+  query_timestamp: number;
   crunched_information: Array<{
     url: string;
     content: string[];
@@ -65,7 +65,7 @@ export async function deepResearch({
   parentTokenCount = 0,
   parentFindings = [],
   currentDepth = 1,
-  parentQueryRank = 0,
+  parentQueryTimestamp = 0,
   wsManager
 }: {
   query_to_find_websites: string;
@@ -76,7 +76,7 @@ export async function deepResearch({
   parentTokenCount?: number;
   parentFindings?: TrackedLearning[];
   currentDepth?: number;
-  parentQueryRank?: number;
+  parentQueryTimestamp?: number;
   wsManager?: WebSocketManager;
 }): Promise<ResearchResult> {
   // Input validation
@@ -100,16 +100,17 @@ export async function deepResearch({
     const queries = await generateQueriesWithObjectives(query_to_find_websites, breadth);
     console.log(`Generated ${queries.length} queries for depth ${currentDepth}`);
 
+    // Process each query at current depth
     for (const query of queries) {
       if (signal?.aborted) throw new Error('Research aborted');
 
-      // Initialize SERP query with depth tracking
+      // Initialize SERP query with depth tracking and timestamp
       const serpQuery: SerpQuery = {
         query: query.query,
         objective: query.objective,
-        query_rank: queries.indexOf(query) + 1,
+        query_timestamp: Date.now(),  // Use timestamp instead of rank
         depth_level: currentDepth,
-        parent_query_rank: parentQueryRank,
+        parent_query_timestamp: parentQueryTimestamp,  // Use the parent timestamp
         successful_scraped_websites: [],
         failedWebsites: []
       };
@@ -136,7 +137,7 @@ export async function deepResearch({
       }));
 
       // Save initial website objects and emit event
-      await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+      await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
       if (wsManager) {
         await wsManager.handleNewSerpQuery(researchId);
       }
@@ -159,7 +160,7 @@ export async function deepResearch({
       serpQuery.failedWebsites = failedScrapes;
 
       // Update DB and emit event for failed scrapes
-      await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+      await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
       if (wsManager && serpQuery.successful_scraped_websites.length > 0) {
         const website = serpQuery.successful_scraped_websites[0];
         if (website && 'id' in website && 'status' in website) {
@@ -181,7 +182,7 @@ export async function deepResearch({
 
           // Update status to analyzing and save to DB
           website.status = 'analyzing';
-          await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+          await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
           if (wsManager) {
             await wsManager.handleWebsiteAnalyzing(researchId, website as WebsiteStatus);
           }
@@ -198,7 +199,7 @@ export async function deepResearch({
             website.extracted_from_website_analyzer_agent = [analysis.content];
 
             // Save to DB and emit analyzed event
-            await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+            await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
             if (wsManager) {
               await wsManager.handleWebsiteAnalyzed(researchId, website as WebsiteStatus);
             }
@@ -228,7 +229,7 @@ export async function deepResearch({
 
               if (crunchedInfo) {
                 const crunchingResult: InformationCrunchingResult = {
-                  query_rank: serpQuery.query_rank,
+                  query_timestamp: serpQuery.query_timestamp,
                   crunched_information: [{
                     url: content.url,
                     content: [crunchedInfo.content]
@@ -263,7 +264,7 @@ export async function deepResearch({
               website: content.url,
               stage: 'analyzing'
             });
-            await db.updateSerpQueryResults(researchId, serpQuery.query_rank, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
+            await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
             if (wsManager) {
               await wsManager.handleWebsiteAnalyzing(researchId, failedWebsite);
             }
@@ -280,25 +281,26 @@ export async function deepResearch({
         const finalCrunch = await cruncher.finalCrunch();
         if (finalCrunch) {
           const crunchingResult: InformationCrunchingResult = {
-            query_rank: serpQuery.query_rank,
+            query_timestamp: serpQuery.query_timestamp,
             crunched_information: [{
               url: queryResults[0].sourceUrl,
               content: [finalCrunch.content]
             }]
           };
           await db.addCrunchedInformation(researchId, crunchingResult);
-          crunchedResults.set(serpQuery.query_rank, finalCrunch);
+          crunchedResults.set(serpQuery.query_timestamp, finalCrunch);
         }
       }
 
-      // Handle recursive depth if we found relevant content
-      if (queryResults.length > 0 && currentDepth < depth) {
-        console.log(`Starting depth ${currentDepth + 1} research...`);
+      // Handle recursive depth for EACH query at this level
+      if (currentDepth < depth) {
+        console.log(`Starting depth ${currentDepth + 1} research from query ${query.query}...`);
         const nextBreadth = Math.ceil(breadth / 2);
         const contextString = [
           query_to_find_websites,
-          `Current Findings: ${results.map(r => r.content).join('\n')}`,
-          `Next Goal: ${query.objective}`
+          `Previous Query: ${query.query}`,
+          `Previous Findings: ${queryResults.map(r => r.content).join('\n')}`,
+          `Next Goal: Further explore ${query.objective}`
         ].join('\n');
 
         const deeperResults = await deepResearch({
@@ -310,10 +312,11 @@ export async function deepResearch({
           parentTokenCount: totalTokenCount,
           parentFindings: results,
           currentDepth: currentDepth + 1,
-          parentQueryRank: serpQuery.query_rank,
+          parentQueryTimestamp: serpQuery.query_timestamp,  // Pass timestamp as parent
           wsManager
         });
 
+        // Merge results from deeper research
         results.push(...deeperResults.learnings);
         failedUrls.push(...deeperResults.failedUrls);
       }

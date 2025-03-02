@@ -89,7 +89,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             // Get last successful state if exists
             const sortedQueries = existingResearch.serpQueries
                 .filter(q => q.successful_scraped_websites.some(w => w.status === 'analyzed'))
-                .sort((a, b) => (b.depth_level - a.depth_level) || (b.query_rank - a.query_rank));
+                .sort((a, b) => (b.depth_level - a.depth_level) || (b.query_timestamp - a.query_timestamp));
 
             const lastState = sortedQueries[0];
 
@@ -124,7 +124,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
                 signal: controller.signal,
                 researchId: provided_report_id,
                 currentDepth: lastState ? lastState.depth_level : 1,
-                parentQueryRank: lastState ? lastState.query_rank : 0,
+                parentQueryTimestamp: lastState ? lastState.query_timestamp : 0,
                 wsManager
             });
 
@@ -390,13 +390,13 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
         // Find last successful state
         const lastSuccessfulState = {
             depth: 0,
-            queryRank: 0,
+            queryTimestamp: 0,
             context: ''
         };
 
         // Sort queries by depth and rank to find the latest successful one
         const sortedQueries = (research.serpQueries as SerpQuery[]).sort((a, b) =>
-            (b.depth_level - a.depth_level) || (b.query_rank - a.query_rank)
+            (b.depth_level - a.depth_level) || (b.query_timestamp - a.query_timestamp)
         );
 
         // Find last successful query and build context
@@ -408,7 +408,7 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
             const lastQuery = successfulQueries[0];
             if (lastQuery) {  // Extra safety check
                 lastSuccessfulState.depth = lastQuery.depth_level;
-                lastSuccessfulState.queryRank = lastQuery.query_rank;
+                lastSuccessfulState.queryTimestamp = lastQuery.query_timestamp;
 
                 // Build context from all successful queries up to this depth
                 lastSuccessfulState.context = (research.serpQueries as SerpQuery[])

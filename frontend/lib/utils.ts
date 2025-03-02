@@ -5,9 +5,10 @@ import type { SerpQuery } from '@deep-research/db/schema';
 interface QueryNode {
   id: string;
   depth: number;
-  rank: number;
-  parentRank: number;
+  timestamp: number;
+  parentTimestamp: number;
   children: QueryNode[];
+  queryNumber: number;
   data?: SerpQuery;
   isEnabled: boolean;
   x?: number; // For positioning
@@ -42,20 +43,22 @@ function calculateBreadthAtLevel(initialBreadth: number, currentDepth: number) {
 
 export function generateQueryTree(depth: number, breadth: number) {
   const nodes: QueryNode[] = [];
-  let currentRank = 1;
+  let currentTimestamp = Date.now();
+  let queryCounter = 1;
 
   // Create first level
   const firstLevelNodes = Array.from({ length: breadth }, (_, i) => ({
-    id: `1-${currentRank + i}`,
+    id: `1-${i + 1}`,
     depth: 1,
-    rank: currentRank + i,
-    parentRank: 0,
-    children: [],
+    timestamp: currentTimestamp + i,
+    parentTimestamp: 0,
+    children: [] as QueryNode[],
+    queryNumber: queryCounter++,
     isEnabled: false
   }));
 
   nodes.push(...firstLevelNodes);
-  currentRank += breadth;
+  currentTimestamp += breadth;
 
   // Generate subsequent levels
   let currentLevelNodes = firstLevelNodes;
@@ -67,11 +70,12 @@ export function generateQueryTree(depth: number, breadth: number) {
       // Create children for this parent
       const children = Array.from({ length: breadthAtThisLevel }, (_, i) => {
         const node: QueryNode = {
-          id: `${d}-${currentRank + i}`,
+          id: `${d}-${i + 1}`,
           depth: d,
-          rank: currentRank + i,
-          parentRank: parentNode.rank,
-          children: [],
+          timestamp: currentTimestamp + i,
+          parentTimestamp: parentNode.timestamp,
+          children: [] as QueryNode[],
+          queryNumber: queryCounter++,
           isEnabled: false
         };
         nextLevelNodes.push(node);
@@ -79,7 +83,7 @@ export function generateQueryTree(depth: number, breadth: number) {
       });
 
       parentNode.children = children;
-      currentRank += breadthAtThisLevel;
+      currentTimestamp += breadthAtThisLevel;
     });
 
     nodes.push(...nextLevelNodes);

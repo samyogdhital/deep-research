@@ -19,9 +19,9 @@ export interface ScrapedWebsite {
 export interface SerpQuery {
     query: string;
     objective: string;
-    query_rank: number;
+    query_timestamp: number;
     depth_level: number;
-    parent_query_rank: number;
+    parent_query_timestamp: number;
     successful_scraped_websites: Array<{
         id: number;
         url: string;
@@ -43,7 +43,7 @@ export interface CrunchedInformation {
 }
 
 export interface InformationCrunchingResult {
-    query_rank: number;
+    query_timestamp: number;
     crunched_information: CrunchedInformation[];
 }
 

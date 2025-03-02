@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { socket } from '@/lib/research-store';
-import { ResearchData } from '@/types/research';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -14,6 +13,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { type ResearchData } from '@deep-research/db/schema';
 import type { Components } from 'react-markdown';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -344,11 +344,11 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
           <div className='space-y-6'>
             {researchData.serpQueries.map((query) => (
               <div
-                key={query.query_rank}
+                key={query.query_timestamp}
                 className='p-4 bg-gray-50 dark:bg-bg_color rounded shadow-sm'
               >
                 <h3 className='font-medium mb-2 text-gray-900 dark:text-gray-50'>
-                  Query {query.query_rank}: {query.query}
+                  Query {query.query_timestamp}: {query.query}
                 </h3>
                 <p className='text-sm text-gray-600 dark:text-gray-400 mb-4'>
                   Objective: {query.objective}
@@ -408,11 +408,11 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
                 {researchData.information_crunching_agent.serpQueries.map(
                   (query) => (
                     <div
-                      key={query.query_rank}
+                      key={query.query_timestamp}
                       className='p-4 bg-gray-50 dark:bg-bg_color rounded'
                     >
                       <h4 className='font-medium mb-2'>
-                        Query {query.query_rank} Results
+                        Query {query.query_timestamp} Results
                       </h4>
                       {query.crunched_information.map((info, index) => (
                         <div key={index} className='mt-2'>
