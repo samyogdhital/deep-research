@@ -249,6 +249,14 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     setTimeout(checkVisibility, 100);
   }, [checkVisibility]);
 
+  // Get the latest data for the selected query
+  const selectedQueryData =
+    selectedQuery && researchData
+      ? researchData.serpQueries.find(
+          (q) => q.query_timestamp === selectedQuery.query_timestamp
+        )
+      : null;
+
   return (
     <div
       ref={containerRef}
@@ -290,14 +298,10 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
         )}
 
         {/* Query Details Sheet */}
-        {selectedQuery && researchData && (
+        {selectedQueryData && researchData && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
             <QuerySheet
-              query={
-                researchData.serpQueries.find(
-                  (q) => q.query_timestamp === selectedQuery.query_timestamp
-                ) || selectedQuery
-              }
+              query={selectedQueryData}
               isOpen={isSheetOpen}
               onOpenChange={setIsSheetOpen}
             />

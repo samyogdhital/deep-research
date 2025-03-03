@@ -259,6 +259,19 @@ class ResearchDB {
         return true;
     }
 
+    async updateFollowUpAnswer(researchId: string, followUpQnA: FollowUpQnA): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        if (!research) return false;
+
+        const existingQuestionIndex = research.followUps_QnA.findIndex(qa => qa.id === followUpQnA.id);
+        if (existingQuestionIndex === -1) return false;
+
+        research.followUps_QnA[existingQuestionIndex] = followUpQnA;
+        await this.db.write();
+        return true;
+    }
+
     async updateWebsiteStatus(researchId: string, queryTimestamp: number, website: WebsiteStatus): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);

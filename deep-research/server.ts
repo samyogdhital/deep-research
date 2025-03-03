@@ -199,12 +199,24 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
         }
 
         // Save follow-up QnA
-        for (const [question, answer] of Object.entries(followUpAnswers)) {
-            await db.addFollowUpQnA(report_id, {
-                id: parseInt(question),
-                question,
-                answer: answer as string
-            });
+        const existingResearch = await db.getResearchData(report_id);
+        if (!existingResearch) {
+            res.status(404).json({ error: 'Research not found' });
+            return;
+        }
+
+        // Update answers for existing questions
+        for (const [questionId, answer] of Object.entries(followUpAnswers)) {
+            const existingQuestion = existingResearch.followUps_QnA.find(
+                qa => qa.id === parseInt(questionId)
+            );
+            if (existingQuestion) {
+                await db.updateFollowUpAnswer(report_id, {
+                    id: parseInt(questionId),
+                    question: existingQuestion.question,
+                    answer: answer as string
+                });
+            }
         }
 
         // Start research process

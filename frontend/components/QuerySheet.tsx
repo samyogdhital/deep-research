@@ -6,6 +6,7 @@ import {
 } from '@/components/ui/sheet';
 import type { SerpQuery } from '@deep-research/db/schema';
 import { CircleIcon, CheckCircleIcon, XCircleIcon } from 'lucide-react';
+import type { ResearchData } from '@deep-research/db/schema';
 
 interface QuerySheetProps {
   query: SerpQuery;

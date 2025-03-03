@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { SerpQuery } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
 import { Sheet } from '@/components/ui/sheet';
@@ -23,6 +23,18 @@ interface QueryTreeProps {
 export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
   const [selectedQuery, setSelectedQuery] = useState<SerpQuery | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+
+  // Update selectedQuery when nodes update and we have a selected query
+  useEffect(() => {
+    if (selectedQuery) {
+      const updatedNode = nodes.find(
+        (node) => node.data?.query_timestamp === selectedQuery.query_timestamp
+      );
+      if (updatedNode?.data) {
+        setSelectedQuery(updatedNode.data);
+      }
+    }
+  }, [nodes, selectedQuery]);
 
   // Constants for layout
   const NODE_WIDTH = 120;
