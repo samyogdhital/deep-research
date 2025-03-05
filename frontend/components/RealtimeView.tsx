@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet';
 import { generateQueryTree } from '@/lib/utils';
 import { QueryTree } from '@/components/QueryTree';
 import { QuerySheet } from '@/components/QuerySheet';
@@ -107,6 +106,41 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     }
   }, []);
 
+  // Handle wheel zoom
+  const handleWheel = useCallback(
+    (e: WheelEvent) => {
+      // Don't zoom if interacting with sheet content
+      if (
+        e.target instanceof Element &&
+        (e.target.closest('[role="dialog"]') || selectedQuery)
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      const delta = -e.deltaY;
+      const scaleFactor = 0.05;
+      const newScale =
+        delta > 0 ? scale * (1 + scaleFactor) : scale / (1 + scaleFactor);
+
+      // Limit scale between 0.1 and 2
+      setScale(Math.min(Math.max(newScale, 0.1), 2));
+      checkTreeVisibility();
+    },
+    [scale, selectedQuery, checkTreeVisibility]
+  );
+
+  // Add wheel event listener
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [handleWheel]);
+
   // Handle dragging
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
@@ -202,17 +236,11 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
   return (
     <div
       ref={containerRef}
-      className='min-h-screen bg-gray-50 dark:bg-gray-900 relative'
+      className='w-full h-full bg-gray-50 dark:bg-gray-900 relative overflow-hidden flex items-center justify-center'
       onMouseDown={handleMouseDown}
       style={{
         cursor: isDragging ? 'grabbing' : selectedQuery ? 'auto' : 'grab',
         userSelect: selectedQuery ? 'text' : 'none',
-        overflow: 'hidden',
-        width: '100%',
-        height: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
       }}
     >
       <div

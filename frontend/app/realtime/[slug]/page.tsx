@@ -20,7 +20,7 @@ export default async function RealtimePage(
   }
 
   return (
-    <main className='w-full min-h-screen bg-[#0B1120]'>
+    <main className='fixed inset-0 w-full h-full bg-[#0B1120]'>
       <Suspense fallback={<div>Loading...</div>}>
         <RealtimeView initialData={initialData} />
       </Suspense>

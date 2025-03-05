@@ -18,7 +18,7 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
   return (
     <Sheet defaultOpen onOpenChange={onOpenChange}>
       <SheetContent
-        className='w-[600px] sm:w-[800px] overflow-y-auto'
+        className='!w-[min(800px,100vw-40px)] h-full overflow-y-auto overflow-x-hidden'
         onMouseDown={(e) => e.stopPropagation()}
         style={{ userSelect: 'text', cursor: 'auto' }}
       >
