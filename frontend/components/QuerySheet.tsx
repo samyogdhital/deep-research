@@ -66,18 +66,16 @@ export function QuerySheet({ query, isOpen, onOpenChange }: QuerySheetProps) {
 
               {/* Extracted Information */}
               {website.status === 'analyzed' &&
-                website.extracted_from_website_analyzer_agent.length > 0 && (
+                website.core_content.length > 0 && (
                   <div className='mt-4 space-y-2'>
                     <h5 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
                       Extracted Information
                     </h5>
                     <div className='bg-gray-50 dark:bg-gray-800 rounded-md p-3'>
                       <ul className='list-disc list-inside space-y-2 text-sm text-gray-600 dark:text-gray-300'>
-                        {website.extracted_from_website_analyzer_agent.map(
-                          (info, i) => (
-                            <li key={i}>{info}</li>
-                          )
-                        )}
+                        {website.core_content.map((info, i) => (
+                          <li key={i}>{info}</li>
+                        ))}
                       </ul>
                     </div>
                   </div>

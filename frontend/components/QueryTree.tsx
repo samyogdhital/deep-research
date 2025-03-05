@@ -5,7 +5,7 @@ import { Sheet } from '@/components/ui/sheet';
 import { QuerySheet } from '@/components/QuerySheet';
 
 interface QueryNode {
-  id: string;
+  id: number;
   depth: number;
   timestamp: number;
   parentTimestamp: number;

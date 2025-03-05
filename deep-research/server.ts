@@ -9,6 +9,8 @@ import { WebSocketManager, ResearchState } from './src/websocket';
 import { config as envConfig } from 'dotenv';
 import { ResearchProgress, DeepResearchOptions, WebsiteResult, CrunchedInfo, QueryData } from './src/types';
 import { SerpQuery } from './src/db/schema';
+import crypto from 'crypto';
+import type { DBSchema } from './src/db';
 
 envConfig();
 const app = express();
@@ -51,8 +53,8 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
         for (let i = 0; i < questions.length; i++) {
             await db.addFollowUpQnA(report_id, {
                 id: i + 1,
-                question: questions[i] || '',  // Handle potential undefined
-                answer: ''  // Empty answer initially
+                question: questions[i] || '',
+                answer: ''
             });
         }
 
@@ -69,109 +71,16 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
 
 app.post('/api/research/start', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { initial_query, depth, breadth, followUpAnswers, followUps_num, report_id: provided_report_id, resume } = req.body;
+        const { initial_query, depth, breadth, report_id: provided_report_id, followUpAnswers } = req.body;
 
-        // If resuming, we only need report_id
-        if (resume && provided_report_id) {
-            const db = await ResearchDB.getInstance();
-            const existingResearch = await db.getResearchData(provided_report_id);
-            if (!existingResearch) {
-                res.status(404).json({ error: 'Research not found' });
-                return;
-            }
-
-            // Simplified logic - just check if we have required data
-            if (!existingResearch.initial_query || existingResearch.followUps_QnA.length === 0) {
-                res.status(400).json({ error: 'Missing required data to resume research' });
-                return;
-            }
-
-            // Get last successful state if exists
-            const sortedQueries = existingResearch.serpQueries
-                .filter(q => q.successful_scraped_websites.some(w => w.status === 'analyzed'))
-                .sort((a, b) => (b.depth_level - a.depth_level) || (b.query_timestamp - a.query_timestamp));
-
-            const lastState = sortedQueries[0];
-
-            // Start research process
-            const controller = new AbortController();
-            const research: ResearchState = {
-                id: provided_report_id,
-                prompt: existingResearch.initial_query,
-                status: 'collecting',
-                startTime: Date.now(),
-                controller,
-                cleanup: () => { }
-            };
-
-            await wsManager.handleResearchStart(research);
-
-            // If we have successful queries, use them for context
-            const context = lastState ?
-                existingResearch.serpQueries
-                    .filter(q => q.depth_level <= lastState.depth_level)
-                    .flatMap(q => q.successful_scraped_websites
-                        .filter(w => w.status === 'analyzed')
-                        .flatMap(w => w.extracted_from_website_analyzer_agent)
-                    ).join('\n') : '';
-
-            const { learnings, failedUrls } = await deepResearch({
-                query_to_find_websites: context ?
-                    `${existingResearch.initial_query}\nPrevious findings: ${context}` :
-                    existingResearch.initial_query,
-                depth: existingResearch.depth,
-                breadth: existingResearch.breadth,
-                signal: controller.signal,
-                researchId: provided_report_id,
-                currentDepth: lastState ? lastState.depth_level : 1,
-                parentQueryTimestamp: lastState ? lastState.query_timestamp : 0,
-                wsManager
-            });
-
-            if (!learnings?.length) {
-                throw new Error('Research completed but no results were found.');
-            }
-
-            // Generate report
-            await wsManager.handleReportWritingStart(provided_report_id);
-            const reportWriter = new ReportWriter();
-            const report = await reportWriter.generateReport({
-                prompt: existingResearch.initial_query,
-                learnings: learnings
-            });
-
-            await db.saveReport({
-                report_id: provided_report_id,
-                title: report.title,
-                sections: report.sections.map(section => ({
-                    rank: section.rank,
-                    sectionHeading: section.sectionHeading,
-                    content: section.content
-                })),
-                citedUrls: report.citedUrls.map((url, index) => ({
-                    rank: index + 1,
-                    url: url.url,
-                    title: url.title,
-                    oneValueablePoint: url.oneValueablePoint
-                })),
-                isVisited: false,
-                timestamp: Date.now()
-            });
-
-            await wsManager.handleReportWritingComplete(provided_report_id);
-            res.json(await db.getResearchData(provided_report_id));
-            return;
-        }
-
-        // Validate required fields
+        // Input validation
         if (!initial_query?.trim()) {
             res.status(400).json({ error: 'Initial query is required' });
             return;
         }
 
-        // Input validation
-        if (depth < 1 || depth > 10 || breadth < 1 || breadth > 10 || followUps_num < 1 || followUps_num > 10) {
-            res.status(400).json({ error: 'Invalid depth, breadth, or followUps_num values. Must be between 1 and 10.' });
+        if (depth < 1 || depth > 10 || breadth < 1 || breadth > 10) {
+            res.status(400).json({ error: 'Invalid depth or breadth values. Must be between 1 and 10.' });
             return;
         }
 
@@ -191,29 +100,24 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             await db.updateResearchParameters(report_id, {
                 depth,
                 breadth,
-                followUps_num
+                followUps_num: Object.keys(followUpAnswers || {}).length
             });
         } else {
-            // Initialize new research since no report_id was provided
-            report_id = await db.initializeResearch(initial_query, depth, breadth, followUps_num);
+            // Initialize new research
+            report_id = await db.initializeResearch(
+                initial_query,
+                depth,
+                breadth,
+                Object.keys(followUpAnswers || {}).length
+            );
         }
 
         // Save follow-up QnA
-        const existingResearch = await db.getResearchData(report_id);
-        if (!existingResearch) {
-            res.status(404).json({ error: 'Research not found' });
-            return;
-        }
-
-        // Update answers for existing questions
-        for (const [questionId, answer] of Object.entries(followUpAnswers)) {
-            const existingQuestion = existingResearch.followUps_QnA.find(
-                qa => qa.id === parseInt(questionId)
-            );
-            if (existingQuestion) {
-                await db.updateFollowUpAnswer(report_id, {
-                    id: parseInt(questionId),
-                    question: existingQuestion.question,
+        if (followUpAnswers) {
+            for (const [question, answer] of Object.entries(followUpAnswers)) {
+                await db.addFollowUpQnA(report_id, {
+                    id: Date.now(),
+                    question,
                     answer: answer as string
                 });
             }
@@ -227,61 +131,75 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             status: 'collecting',
             startTime: Date.now(),
             controller,
-            cleanup: () => { }
+            cleanup: () => {
+                controller.abort();
+                research.status = 'failed';
+            }
         };
 
+        // Notify frontend that research has started
         await wsManager.handleResearchStart(research);
 
-        const fullContext = `
-Initial Query: ${initial_query}
-Follow-up Answers:
-${Object.entries(followUpAnswers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n\n')}`;
+        try {
+            // Start deep research process
+            await deepResearch({
+                query_to_find_websites: initial_query,
+                depth,
+                breadth,
+                researchId: report_id,
+                wsManager,
+                signal: controller.signal
+            });
 
-        const { learnings, failedUrls } = await deepResearch({
-            query_to_find_websites: fullContext,
-            depth,
-            breadth,
-            signal: controller.signal,
-            researchId: report_id,
-            wsManager
-        });
+            // Get fresh data before report generation
+            const freshResearchData = await db.getResearchData(report_id);
+            if (!freshResearchData) {
+                throw new Error('Research data not found when trying to generate report');
+            }
 
-        if (!learnings?.length) {
-            throw new Error('Research completed but no results were found.');
+            // Start report generation
+            research.status = 'generating';
+            await wsManager.handleReportWritingStart(report_id);
+
+            const reportWriter = new ReportWriter();
+            const report = await reportWriter.generateReport({
+                db_research_data: freshResearchData
+            });
+
+            // Save report
+            await db.saveReport({
+                report_id,
+                title: report.title,
+                sections: report.sections,
+                citedUrls: report.citedUrls,
+                isVisited: false,
+                timestamp: Date.now()
+            });
+
+            // Update research status and notify frontend
+            research.status = 'complete';
+            await wsManager.handleReportWritingComplete(report_id);
+
+            // Return final research data
+            res.json(await db.getResearchData(report_id));
+
+        } catch (error) {
+            console.error('Error in research:', error);
+            research.status = 'failed';
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            wsManager.handleResearchError(new Error(errorMessage));
+            res.status(500).json({
+                error: 'Research failed',
+                details: errorMessage
+            });
+        } finally {
+            if (research.cleanup) {
+                research.cleanup();
+            }
         }
 
-        // Generate report
-        await wsManager.handleReportWritingStart(report_id);
-        const reportWriter = new ReportWriter();
-        const report = await reportWriter.generateReport({
-            prompt: initial_query,
-            learnings: learnings
-        });
-
-        // Save the report to database
-        await db.saveReport({
-            report_id,
-            title: report.title,
-            sections: report.sections.map(section => ({
-                rank: section.rank,
-                sectionHeading: section.sectionHeading,
-                content: section.content
-            })),
-            citedUrls: report.citedUrls.map((url, index) => ({
-                rank: index + 1,
-                url: url.url,
-                title: url.title,
-                oneValueablePoint: url.oneValueablePoint
-            })),
-            isVisited: false,
-            timestamp: Date.now()
-        });
-
-        // Complete research
-        await wsManager.handleReportWritingComplete(report_id);
-        res.json(await db.getResearchData(report_id));
-
-    } catch (error: unknown) {
+    } catch (error) {
+        console.error('Error in research:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         wsManager.handleResearchError(new Error(errorMessage));
         res.status(500).json({
@@ -407,7 +325,7 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
         };
 
         // Sort queries by depth and rank to find the latest successful one
-        const sortedQueries = (research.serpQueries as SerpQuery[]).sort((a, b) =>
+        const sortedQueries = research.serpQueries.sort((a, b) =>
             (b.depth_level - a.depth_level) || (b.query_timestamp - a.query_timestamp)
         );
 
@@ -423,11 +341,11 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
                 lastSuccessfulState.queryTimestamp = lastQuery.query_timestamp;
 
                 // Build context from all successful queries up to this depth
-                lastSuccessfulState.context = (research.serpQueries as SerpQuery[])
+                lastSuccessfulState.context = research.serpQueries
                     .filter(q => q.depth_level <= lastQuery.depth_level)
                     .flatMap(q => q.successful_scraped_websites
                         .filter(w => w.status === 'analyzed')
-                        .flatMap(w => w.extracted_from_website_analyzer_agent)
+                        .flatMap(w => w.core_content)
                     ).join('\n');
             }
         }

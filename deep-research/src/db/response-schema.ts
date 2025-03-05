@@ -29,15 +29,20 @@ const final_database_schema = {
             parent_query_timestamp: Date.now(), // Which query from previous depth led to this query. This helps understand which query was the parent of this query.
             successful_scraped_websites: [
                 {
-                    id: "unique id for this website", // Since we are optimistically saving all the websites we get under a serp query rightaway we get the list, some website scrapping may failed, if so, we will take the id of that website object and remove that object and include it under failedWebsites array just as a string..
+                    id: 1, //unique id for this website. Since we are optimistically saving all the websites we get under a serp query rightaway we get the list, some website scrapping may failed, if so, we will take the id of that website object and remove that object and include it under failedWebsites array just as a string..
                     url: "https://www.example.com",
                     title: "Title of the website which we get from searxng reponse.",
                     description: "Description of the website which we also get from searxng reponse.",
-                    status: "scraping" | "analyzing" | "analyzed",  // Status will be "scraping" if we started scraping this individual website. And it will change to "analyzing" if we scraped the website already and are now analyzing it. Finally. if the website is analyzed through website analyzer agent successfully, the status should change to "analyzed". Right then, the response from website analyzer agent will be pushed to "extracted_from_website_analyzer_agent" key of for this website object inside DB.
-                    isRelevant: "Website analyzer agent will give absolute score from 1 to 10 based on the relevance of the content in the website to fully met the objective.",
-                    extracted_from_website_analyzer_agent: [
+                    status: "scraping" | "analyzing" | "analyzed",  // Status will be "scraping" if we started scraping this individual website. And it will change to "analyzing" if we scraped the website already and are now analyzing it. Finally. if the website is analyzed through website analyzer agent successfully, the status should change to "analyzed". Right then, the response from website analyzer agent will be pushed to "successful_scraped_websites" key of this website object inside DB.
+                    relevance_score: 10, // Website analyzer agent will give absolute score from 1 to 10 based on the relevance of the content in the website to fully met the objective.
+                    is_objective_met: true, // Website analyzer agent will give true or false based on the relevance of the content in the website to fully met the objective.
+                    core_content: [
                         "most relevent information that was extracted from the website that  met the above objective.",
                         "All the facts and figures and highly relevent information from the website in array of string fomrat.",
+                        "...... can be as many but make sure that every information is highly relevant if not don't even include it."
+                    ],
+                    facts_figures: [
+                        "All the facts and figures from the website in array of string fomrat.",
                         "...... can be as many but make sure that every information is highly relevant if not don't even include it."
                     ],
 

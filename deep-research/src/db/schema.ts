@@ -12,8 +12,10 @@ export interface ScrapedWebsite {
     title: string;
     description: string;
     status: 'scraping' | 'analyzing' | 'analyzed';
-    isRelevant: number;
-    extracted_from_website_analyzer_agent: string[];
+    relevance_score: number;
+    is_objective_met: boolean;
+    core_content: string[];
+    facts_figures: string[];
 }
 
 export interface SerpQuery {
@@ -28,8 +30,10 @@ export interface SerpQuery {
         title: string;
         description: string;
         status: 'scraping' | 'analyzing' | 'analyzed';
-        isRelevant: number;
-        extracted_from_website_analyzer_agent: string[];
+        relevance_score: number;
+        is_objective_met: boolean;
+        core_content: string[];
+        facts_figures: string[];
     }>;
     failedWebsites: Array<{
         website: string;

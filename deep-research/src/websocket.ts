@@ -1,155 +1,117 @@
-import { Server as HttpServer } from 'http';
-import { Server as WebSocketServer } from 'socket.io';
+import { Server } from 'socket.io';
+import { createServer } from 'http';
 import { ResearchDB } from './db';
 import { WebsiteStatus } from './types';
+import type { DBSchema } from './db';
 
 export interface ResearchState {
     id: string;
     prompt: string;
-    status: 'idle' | 'collecting' | 'complete' | 'failed';
-    startTime?: number;
-    controller: AbortController;
-    cleanup: () => void;
+    status: 'collecting' | 'analyzing' | 'generating' | 'complete' | 'failed';
+    startTime: number;
+    controller?: AbortController;
+    cleanup?: () => void;
 }
 
+// The only payload we send is the research data
+type WebSocketPayload = DBSchema['researches'][number]
+
 export class WebSocketManager {
-    private io: WebSocketServer;
-    private currentResearch: ResearchState | null = null;
-    private db: ResearchDB | null = null;
+    private io: Server;
 
-    constructor(server: HttpServer, corsOrigin: string) {
-        this.io = new WebSocketServer(server, {
+    constructor(httpServer: ReturnType<typeof createServer>, frontendUrl: string) {
+        this.io = new Server(httpServer, {
             cors: {
-                origin: corsOrigin,
-                credentials: true
+                origin: frontendUrl,
+                methods: ['GET', 'POST']
             }
         });
-        this.setupSocketHandlers();
-        // Initialize DB instance
-        ResearchDB.getInstance().then(db => {
-            this.db = db;
-        });
-    }
 
-    private setupSocketHandlers() {
         this.io.on('connection', (socket) => {
-            console.log('Client connected:', socket.id);
-
-            // Handle request for ongoing research state
-            socket.on('request-ongoing-research', async () => {
-                if (this.currentResearch) {
-                    const data = await this.db?.getResearchData(this.currentResearch.id);
-                    if (data) {
-                        socket.emit('ongoing-research-state', data);
-                    }
-                }
-            });
-
-            socket.on('stop-research', () => {
-                if (this.currentResearch) {
-                    this.currentResearch.controller.abort();
-                    this.currentResearch.cleanup();
-                    this.currentResearch = null;
-                }
+            console.log('Client connected');
+            socket.on('disconnect', () => {
+                console.log('Client disconnected');
             });
         });
     }
 
-    // Core function to emit events with complete DB data
-    private async emitWithData(event: string, researchId: string) {
-        if (!this.db) {
-            this.db = await ResearchDB.getInstance();
-        }
-        const researchData = await this.db.getResearchData(researchId);
-        if (researchData) {
-            this.io.emit(event, researchData);
-        }
-    }
+    private async emitEvent(event: string, report_id: string): Promise<void> {
+        try {
+            // Get fresh DB data before emitting
+            const db = await ResearchDB.getInstance();
+            const freshData = await db.getResearchData(report_id);
 
-    // Stage 1: Research Start Process
-    public async handleResearchStart(research: ResearchState) {
-        this.currentResearch = research;
-        await this.emitWithData('generating_followups', research.id);
-    }
-
-    public async handleFollowupsGenerated(researchId: string) {
-        await this.emitWithData('followups_generated', researchId);
-    }
-
-    // Stage 2: Information Gathering Process
-    public async handleNewSerpQuery(researchId: string) {
-        await this.emitWithData('new_serp_query', researchId);
-    }
-
-    public async handleGotWebsitesFromSerpQuery(researchId: string) {
-        await this.emitWithData('got_websites_from_serp_query', researchId);
-    }
-
-    public async handleWebsiteScraping(researchId: string, website: WebsiteStatus) {
-        // Ensure website status is updated in DB before emitting
-        if (this.db) {
-            const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
-            if (query) {
-                website.status = 'scraping';
-                await this.db.updateWebsiteStatus(researchId, query.query_timestamp, website);
-                await this.emitWithData('scraping_a_website', researchId);
+            if (!freshData) {
+                console.error(`No research data found for report_id ${report_id}`);
+                return;
             }
+
+            // Send only the research data
+            const payload: WebSocketPayload = {
+                ...freshData
+            };
+
+            this.io.emit(event, payload);
+        } catch (error) {
+            console.error(`Error emitting ${event}:`, error);
+            this.io.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
         }
     }
 
-    public async handleWebsiteAnalyzing(researchId: string, website: WebsiteStatus) {
-        // Update status to analyzing in DB before emitting
-        if (this.db) {
-            const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
-            if (query) {
-                website.status = 'analyzing';
-                await this.db.updateWebsiteStatus(researchId, query.query_timestamp, website);
-                await this.emitWithData('analyzing_a_website', researchId);
-            }
-        }
+    // Research Start Process Events
+    async handleGeneratingFollowups(report_id: string): Promise<void> {
+        await this.emitEvent('generating_followups', report_id);
     }
 
-    public async handleWebsiteAnalyzed(researchId: string, website: WebsiteStatus) {
-        // Update status to analyzed in DB before emitting
-        if (this.db) {
-            const query = await this.db.getSerpQueryByWebsiteId(researchId, website.id);
-            if (query) {
-                website.status = 'analyzed';
-                await this.db.updateWebsiteStatus(researchId, query.query_timestamp, website);
-                await this.emitWithData('analyzed_a_website', researchId);
-            }
-        }
+    async handleFollowupsGenerated(report_id: string): Promise<void> {
+        await this.emitEvent('followups_generated', report_id);
     }
 
-    // Stage 3: Information Crunching Process
-    public async handleCrunchingStart(researchId: string) {
-        await this.emitWithData('crunching_a_serp_query', researchId);
+    async handleResearchStart(research: ResearchState): Promise<void> {
+        await this.emitEvent('research_start', research.id);
     }
 
-    public async handleCrunchingComplete(researchId: string) {
-        await this.emitWithData('crunched_a_serp_query', researchId);
+    // Information Gathering Process Events
+    async handleNewSerpQuery(report_id: string): Promise<void> {
+        await this.emitEvent('new_serp_query', report_id);
     }
 
-    // Stage 4: Report Writing Process
-    public async handleReportWritingStart(researchId: string) {
-        await this.emitWithData('report_writing_start', researchId);
+    async handleGotWebsitesFromSerpQuery(report_id: string): Promise<void> {
+        await this.emitEvent('got_websites_from_serp_query', report_id);
     }
 
-    public async handleReportWritingComplete(researchId: string) {
-        await this.emitWithData('report_writing_successfull', researchId);
-        // Research is complete, clear current research
-        if (this.currentResearch?.id === researchId) {
-            this.currentResearch = null;
-        }
+    async handleWebsiteScraping(report_id: string, website: WebsiteStatus): Promise<void> {
+        await this.emitEvent('scraping_a_website', report_id);
     }
 
-    // Error handling
-    public async handleResearchError(error: Error) {
-        if (this.currentResearch) {
-            this.currentResearch.status = 'failed';
-            await this.emitWithData('research_error', this.currentResearch.id);
-            this.currentResearch = null;
-        }
-        this.io.emit('log', `Error: ${error.message}`);
+    async handleWebsiteAnalyzing(report_id: string, website: WebsiteStatus): Promise<void> {
+        await this.emitEvent('analyzing_a_website', report_id);
+    }
+
+    async handleWebsiteAnalyzed(report_id: string, website: WebsiteStatus): Promise<void> {
+        await this.emitEvent('analyzed_a_website', report_id);
+    }
+
+    // Information Crunching Process Events
+    async handleCrunchingQuery(report_id: string): Promise<void> {
+        await this.emitEvent('crunching_a_serp_query', report_id);
+    }
+
+    async handleQueryCrunched(report_id: string): Promise<void> {
+        await this.emitEvent('crunched_a_serp_query', report_id);
+    }
+
+    // Report Writing Process Events
+    async handleReportWritingStart(report_id: string): Promise<void> {
+        await this.emitEvent('report_writing_start', report_id);
+    }
+
+    async handleReportWritingComplete(report_id: string): Promise<void> {
+        await this.emitEvent('report_writing_successfull', report_id);
+    }
+
+    // Error Handling - Special case, doesn't send research data
+    async handleResearchError(error: Error): Promise<void> {
+        this.io.emit('research_error', { error: error.message });
     }
 }

@@ -9,15 +9,11 @@
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { InformationCruncher } from './information-cruncher';
+import { encode, isWithinTokenLimit } from 'gpt-tokenizer';
+import { DBSchema } from '../db';
 // import { encode } from 'gpt-tokenizer';
 // import { InformationCruncher } from '../information-cruncher';
 
-export interface TrackedLearning {
-    content: string;
-    sourceUrl: string;
-    sourceText: string;
-    objective?: string;
-}
 
 export interface ReportResult {
     title: string;
@@ -38,16 +34,18 @@ export class ReportWriter {
     constructor() { }
 
     async generateReport(params: {
-        prompt: string;
-        learnings: TrackedLearning[];
+        db_research_data: DBResearchData
     }): Promise<ReportResult> {
-        if (!params.learnings?.length) {
-            throw new Error('Invalid input: Missing learnings');
+
+        if (!params.db_research_data.serpQueries.length) {
+            throw new Error('Invalid input: Missing serp queries');
         }
 
-        const { prompt, learnings } = params;
+        const structuredPrompt = generateContextforReportWriterAgent(params.db_research_data);
+        const tokens = encode(structuredPrompt);
+        console.log(`Tokens: ${tokens.length}`);
+        console.log("✍️✍️", structuredPrompt, "✅✅");
 
-        const processedLearnings = await this.processLearnings(learnings);
         // This schema is absolutely necessary for pushing data to database for the report section.
         // Every field is required to ensure Gemini doesn't miss any fields in the response.
         // The response must exactly match the database Report schema structure.
@@ -115,7 +113,7 @@ export class ReportWriter {
     You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:\n
       - Write in clear markdown format\n
       - Every section must have proper markdown headers (# for H1, ## for H2, ### for H3)
-      - End of every statement must have a citation linking to citedUrls using [rank_number_of_this_cited_url](https://example.com) format. If the citations is multiple for single statement, then give multiple citations back to back as many sources you have used to write that statement.
+      - End of every statement must have a citation linking to citedUrls using ["rank"](actual url that_was given in the prompt from where the content was extracted) format. If the citations is multiple for single statement, then give multiple citations back to back as many sources you have used to write that statement.
       - Make sure every section is highly descriptive, overwhelminly long and technically rich as possible.
       - Citations must be numbered by their rank in citedUrls array
       - Each cited URL must have one valuable point extracted from it
@@ -134,20 +132,13 @@ export class ReportWriter {
       Finally, Every sentence you write must be absolutely cited to one or more websites.
       `,
             prompt: `
-    Write a comprehensive technical report using these research findings:
-
-    Research Context: ${prompt}
-
-    Research Findings:
-    ${processedLearnings.map((l, i) => `
-    Source ${i + 1}: ${l.sourceUrl}
-    Content: ${l.content}
-    Evidence: ${l.sourceText}
-    `).join('\n\n')}
-
     Absolute Requirements:
     - Be highly technical and detailed. Be as technically detailed as possible answering every sinlge precise question the user has asked.
-    - You don't have to explain everything jargons, write final report in a long and highly technical   comprehensive way.
+    - You don't have to explain everything jargons, write final report in a long and highly technical comprehensive way.
+    - Use the exact URLs provided in the content for citations.
+
+${structuredPrompt}
+
 `,
             model: process.env.REPORT_WRITING_MODEL as string,
             generationConfig: {
@@ -158,41 +149,84 @@ export class ReportWriter {
         const result = JSON.parse(response.text());
         return result;
     }
-
-    private async processLearnings(learnings: TrackedLearning[]): Promise<TrackedLearning[]> {
-        const MAX_REPORT_TOKENS = InformationCruncher.getMaxTokenLimit();
-        let processedLearnings: TrackedLearning[] = [];
-
-        // Group learnings by objectives
-        const learningsByObjective = learnings.reduce((acc, learning) => {
-            const objective = learning.objective || 'general';
-            if (!acc[objective]) acc[objective] = [];
-            acc[objective].push(learning);
-            return acc;
-        }, {} as Record<string, TrackedLearning[]>);
-
-        // Process each objective group
-        for (const [objective, objectiveLearnings] of Object.entries(learningsByObjective)) {
-            const cruncher = new InformationCruncher(objective);
-
-            for (const learning of objectiveLearnings) {
-                const crunchedInfo = await cruncher.addContent(
-                    learning.content,
-                    learning.sourceUrl,
-                    learning.sourceText
-                );
-
-                if (crunchedInfo) {
-                    processedLearnings.push({
-                        content: crunchedInfo.content,
-                        sourceUrl: crunchedInfo.sources.map(s => s.url).join(', '),
-                        sourceText: crunchedInfo.sources.map(s => s.quote).join(' | '),
-                        objective
-                    });
-                }
-            }
-        }
-
-        return processedLearnings;
-    }
 }
+
+
+
+export type DBResearchData = DBSchema['researches'][number];
+
+const generateContextforReportWriterAgent = (
+    db_research_data: DBResearchData
+) => `
+  USER'S INITIAL PROMPT
+    Here is the initial prompt the user gave us to do deep research on:
+    "${db_research_data.initial_query}"
+  
+  FOLLOWUP QUESTION AND ANSWERS
+    Here are the followup questions that prompt analyzer agent analyzed the initial user's prompt and generated the followup questions to which the user has answered each of them:
+    ${db_research_data.followUps_QnA
+        .map(
+            (f) => `
+    - Question: ${f.question}
+        Answer: ${f.answer}
+    `
+        )
+        .join('\n')}
+  
+  DEPTH AND BREATH OF THIS DEEP RESEARCH
+    The user told us to do deep research on above topics with depth "${db_research_data.depth
+    }" and breadth "${db_research_data.breadth
+    }" out of 10 on both of these. You can understand the user's requirement how deep the report should be and how broad the report should be.
+  
+      Quick context on depth and breadth: Depth defines how many recursive rounds the research process will perform, with each level using insights from previous rounds to generate new, more focused SERP queries. Breadth determines the number of parallel queries executed at each level, allowing multiple angles of the original query to be explored simultaneously. Together, these parameters ensure that the system not only dives deeply into the subject matter for detailed insights but also maintains a diverse approach by investigating various perspectives concurrently according to the requirement of the user.
+  
+  
+  SERP QUERIES AND INFORMATIONS EXTRACTED FROM EACH WEBSITE UNDER IT
+    Here are all the serp queries we did through query-generator agent by analyzing the user's initial prompt and the followup questions and answer that user gave us.
+    ${db_research_data.serpQueries
+        .map(
+            (serpQuery) => `
+    1. Serp query: "${serpQuery.query}"
+    2. Objective of this query: "${serpQuery.objective}",
+    3. At which depth this query was executed?: "${serpQuery.depth_level}"
+    4. Parent Query of this query: "${serpQuery.parent_query_timestamp === 0
+                    ? `None! This is top level query with depth "1".`
+                    : db_research_data.serpQueries.find(
+                        (x) => x.query_timestamp === serpQuery.parent_query_timestamp
+                    )?.query
+                }"
+    5. Successfully scraped websites and content we got from each of these websites through website analyzer agent:
+    ${serpQuery.successful_scraped_websites
+                    .map(
+                        (scraped_website) => `
+           - Url: "${scraped_website.url}"
+           - Description of the website: "${scraped_website.description}"
+           - Relevance score of the content of this website meeting serp query objective out of 10: "${scraped_website.relevance_score
+                            }" 
+           - Does the content of this website meet the objective of the SERP query?: "${scraped_website.is_objective_met}"
+           - Core content of this website from website analyzer agent: 
+                ${scraped_website.core_content
+                                .map(
+                                    (cc) => `
+                - ${cc}`
+                                )
+                                .join('\n')}
+  
+           - Facts and figures of this website from website analyzer agent: 
+                ${scraped_website.facts_figures
+                                .map(
+                                    (ff) => `
+                - ${ff}`
+                                )
+                                .join('\n')}
+  
+  
+  ==========================================
+  ==========================================
+    `
+                    )
+                    .join('\n')}
+  
+    `
+        )
+        .join('\n')}`;

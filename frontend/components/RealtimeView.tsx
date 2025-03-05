@@ -9,7 +9,7 @@ import { QuerySheet } from '@/components/QuerySheet';
 import type { ResearchData, SerpQuery } from '@deep-research/db/schema';
 
 interface QueryNode {
-  id: string;
+  id: number;
   depth: number;
   timestamp: number;
   parentTimestamp: number;

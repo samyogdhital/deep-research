@@ -370,7 +370,7 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
                         {website.title}
                       </a>
                       <p className='text-sm text-gray-500 dark:text-gray-400 font-inter'>
-                        Relevance: {website.isRelevant}/10
+                        Relevance: {website.relevance_score}/10
                       </p>
                     </div>
                   ))}
@@ -383,12 +383,12 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
                       Failed to scrape:
                     </p>
                     <ul className='list-disc list-inside'>
-                      {query.failedWebsites.map((url) => (
+                      {query.failedWebsites.map((url, index) => (
                         <li
-                          key={url}
+                          key={index}
                           className='text-sm text-gray-500 font-inter'
                         >
-                          {url}
+                          {url.website}
                         </li>
                       ))}
                     </ul>

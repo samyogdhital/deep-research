@@ -7,7 +7,7 @@ import { ResearchData, SerpQuery, FollowUpQnA, Report, InformationCrunchingResul
 import { WebsiteStatus } from '../types'
 
 // Match the final_database_schema from response-schema.ts
-interface DBSchema {
+export interface DBSchema {
     researches: Array<{
         report_id: string;
         initial_query: string;
@@ -31,8 +31,10 @@ interface DBSchema {
                 title: string;
                 description: string;
                 status: 'scraping' | 'analyzing' | 'analyzed';
-                isRelevant: number;
-                extracted_from_website_analyzer_agent: string[];
+                relevance_score: number;
+                is_objective_met: boolean;
+                core_content: string[];
+                facts_figures: string[];
             }>;
             failedWebsites: Array<{
                 website: string;
@@ -62,6 +64,7 @@ interface DBSchema {
                 oneValueablePoint: string;
             }>;
             isVisited: boolean;
+            timestamp?: number;
         };
     }>;
 }

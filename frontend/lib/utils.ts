@@ -3,7 +3,7 @@ import { twMerge } from "tailwind-merge"
 import type { SerpQuery } from '@deep-research/db/schema';
 
 interface QueryNode {
-  id: string;
+  id: number;
   depth: number;
   timestamp: number;
   parentTimestamp: number;
@@ -48,7 +48,7 @@ export function generateQueryTree(depth: number, breadth: number) {
 
   // Create first level
   const firstLevelNodes = Array.from({ length: breadth }, (_, i) => ({
-    id: `1-${i + 1}`,
+    id: i + 1,
     depth: 1,
     timestamp: currentTimestamp + i,
     parentTimestamp: 0,
@@ -70,7 +70,7 @@ export function generateQueryTree(depth: number, breadth: number) {
       // Create children for this parent
       const children = Array.from({ length: breadthAtThisLevel }, (_, i) => {
         const node: QueryNode = {
-          id: `${d}-${i + 1}`,
+          id: queryCounter,
           depth: d,
           timestamp: currentTimestamp + i,
           parentTimestamp: parentNode.timestamp,

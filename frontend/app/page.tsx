@@ -5,7 +5,6 @@ import { io, Socket } from 'socket.io-client';
 import { TbSend2 } from 'react-icons/tb';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import type { ResearchData } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
 import { ArrowBigRight } from 'lucide-react';
 
@@ -31,13 +30,12 @@ interface ResearchState {
 }
 
 export default function Home() {
-  const router = useRouter();
   const [state, setState] = useState<ResearchState>({
     step: 'input',
-    initialPrompt: '',
+    initialPrompt: 'space based datacenter.',
     depth: 3,
-    breadth: 3,
-    followUps_num: 3,
+    breadth: 2,
+    followUps_num: 1,
     followUps_QnA: [],
     isResearchInProgress: false,
   });
@@ -61,13 +59,6 @@ export default function Home() {
 
     socket.on('connect', () => {
       console.log('Connected to websocket');
-    });
-
-    // Listen for first event to get report_id and navigate
-    socket.on('generating_followups', (data: ResearchData) => {
-      if (data.report_id) {
-        window.location.href = `/realtime/${data.report_id}`;
-      }
     });
 
     setSocket(socket);
@@ -212,36 +203,44 @@ export default function Home() {
       return;
     }
 
+    if (!state.currentResearchId) {
+      setState((prev) => ({
+        ...prev,
+        error: 'No research ID found',
+      }));
+      return;
+    }
+
     setState((prev) => ({ ...prev, isResearchInProgress: true }));
 
     try {
       // Convert follow-up answers to the expected format
       const followUpAnswers = Object.fromEntries(
-        state.followUps_QnA.map((qa) => [qa.id.toString(), qa.answer])
+        state.followUps_QnA.map((qa) => [qa.question, qa.answer])
       );
 
-      // Start research process
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            initial_query: state.initialPrompt,
-            depth: state.depth,
-            breadth: state.breadth,
-            followUps_num: state.followUps_num,
-            followUpAnswers,
-            report_id: state.currentResearchId,
-          }),
-        }
+      // Start research process without waiting for response
+      fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/research/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initial_query: state.initialPrompt,
+          depth: state.depth,
+          breadth: state.breadth,
+          followUps_num: state.followUps_num,
+          followUpAnswers,
+          report_id: state.currentResearchId,
+        }),
+      }).catch((error) => {
+        console.error('Error starting research:', error);
+      });
+
+      // Immediately redirect to realtime page
+      console.log(
+        'Redirecting to realtime page with report ID:',
+        state.currentResearchId
       );
-
-      if (!response.ok) {
-        throw new Error('Failed to start research');
-      }
-
-      // Navigation will happen via websocket event handler
+      window.location.href = `/realtime/${state.currentResearchId}`;
     } catch (error) {
       setState((prev) => ({
         ...prev,

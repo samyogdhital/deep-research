@@ -1,4 +1,3 @@
-import { TrackedLearning } from './agent/report-writer';
 import { WebSocketManager } from './websocket';
 
 export interface ScrapedSourceInfo {
@@ -82,7 +81,6 @@ export type ResearchProgress = {
 };
 
 export type ResearchResult = {
-    learnings: TrackedLearning[];
     failedUrls: string[];
 };
 
@@ -99,11 +97,15 @@ export interface DeepResearchOptions {
 }
 
 export interface WebsiteResult {
+    id: number;
     url: string;
     title: string;
     description: string;
-    isRelevant: number;
-    extracted_from_website_analyzer_agent: string[];
+    status: 'scraping' | 'analyzing' | 'analyzed';
+    relevance_score: number;
+    is_objective_met: boolean;
+    core_content: string[];
+    facts_figures: string[];
 }
 
 export interface CrunchedInfo {
@@ -128,6 +130,8 @@ export interface WebsiteStatus {
     title: string;
     description: string;
     status: 'scraping' | 'analyzing' | 'analyzed';
-    isRelevant: number;
-    extracted_from_website_analyzer_agent: string[];
+    relevance_score: number;
+    is_objective_met: boolean;
+    core_content: string[];
+    facts_figures: string[];
 }
