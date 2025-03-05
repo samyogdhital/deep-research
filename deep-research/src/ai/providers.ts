@@ -84,7 +84,7 @@ class GeminiProvider implements AIProvider {
       return await model.generateContent(params.prompt);
     } catch (error: any) {
       if (error.message?.includes('429')) {
-        this.rateLimitCooldown.set(apiKey, Date.now() + 120000);
+        this.rateLimitCooldown.set(apiKey, Date.now() + 60000);
         return this.generateObject(params);
       }
       throw error;
