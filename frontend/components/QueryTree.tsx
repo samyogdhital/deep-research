@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { SerpQuery } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
 import { Sheet } from '@/components/ui/sheet';
@@ -17,31 +17,29 @@ interface QueryNode {
 
 interface QueryTreeProps {
   nodes: QueryNode[];
-  onQueryClick: (query: SerpQuery) => void;
+  onQueryClick: (query: SerpQuery, e: React.MouseEvent) => void;
+  onQueryClickEnd: (query: SerpQuery, e: React.MouseEvent) => void;
+  isInteractionDisabled?: boolean;
 }
 
-export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
-  const [selectedQuery, setSelectedQuery] = useState<SerpQuery | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
-
-  // Update selectedQuery when nodes update and we have a selected query
-  useEffect(() => {
-    if (selectedQuery) {
-      const updatedNode = nodes.find(
-        (node) => node.data?.query_timestamp === selectedQuery.query_timestamp
-      );
-      if (updatedNode?.data) {
-        setSelectedQuery(updatedNode.data);
-      }
-    }
-  }, [nodes, selectedQuery]);
-
+export function QueryTree({
+  nodes,
+  onQueryClick,
+  onQueryClickEnd,
+  isInteractionDisabled = false,
+}: QueryTreeProps) {
   // Constants for layout
-  const NODE_WIDTH = 120;
-  const NODE_HEIGHT = 40;
-  const LEVEL_HEIGHT = 100;
-  const SVG_PADDING = 40;
-  const MIN_NODE_SPACING = 40;
+  const NODE_WIDTH = 200;
+  const NODE_HEIGHT = 50;
+  const LEVEL_HEIGHT = 170;
+  const SVG_PADDING = 50;
+  const MIN_NODE_SPACING = 70;
+
+  // Helper function to truncate query text
+  const truncateQuery = (query: string) => {
+    const words = query.trim().split(/\s+/);
+    return words.length > 3 ? words.slice(0, 4).join(' ') + '...' : query;
+  };
 
   // Create a map of parent to children relationships
   const childrenMap = nodes.reduce((acc, node) => {
@@ -72,14 +70,6 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
   const levelWidth = maxNodesInLevel * (NODE_WIDTH + MIN_NODE_SPACING);
   const svgWidth = Math.max(1200, levelWidth + 2 * SVG_PADDING);
   const svgHeight = (maxDepth + 1) * LEVEL_HEIGHT + 2 * SVG_PADDING;
-
-  // Handle node click
-  const handleNodeClick = (node: QueryNode) => {
-    if (node.data) {
-      setSelectedQuery(node.data);
-      setIsSheetOpen(true);
-    }
-  };
 
   // Calculate node positions with centered children
   const getNodePosition = (node: QueryNode) => {
@@ -126,7 +116,6 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
     endX: number,
     endY: number
   ) => {
-    // Calculate the actual connection points at the edges of the nodes
     const startPoint = {
       x: startX,
       y: startY + NODE_HEIGHT, // Bottom edge of parent
@@ -147,7 +136,6 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
       y: endPoint.y - distance * 0.2, // 20% from the end
     };
 
-    // Create a smooth curve using cubic Bezier
     return `M ${startPoint.x} ${startPoint.y}
             C ${controlPoint1.x} ${controlPoint1.y},
               ${controlPoint2.x} ${controlPoint2.y},
@@ -155,8 +143,13 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
   };
 
   return (
-    <>
-      <svg width={svgWidth} height={svgHeight} className='overflow-visible'>
+    <div className='w-full h-full flex items-center justify-center'>
+      <svg
+        width={svgWidth}
+        height={svgHeight}
+        className='overflow-visible'
+        style={{ pointerEvents: isInteractionDisabled ? 'none' : 'auto' }}
+      >
         {/* Draw connections */}
         {nodes.map((node) => {
           if (node.parentTimestamp === 0) return null;
@@ -174,19 +167,19 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
               <path
                 d={drawPath(parentPos.x, parentPos.y, childPos.x, childPos.y)}
                 stroke='rgb(249 115 22 / 0.3)'
-                strokeWidth={2}
+                strokeWidth={5}
                 fill='none'
               />
               <circle
                 cx={parentPos.x}
                 cy={parentPos.y + NODE_HEIGHT}
-                r={3}
+                r={8}
                 fill='rgb(249 115 22 / 0.3)'
               />
               <circle
                 cx={childPos.x}
                 cy={childPos.y}
-                r={3}
+                r={8}
                 fill='rgb(249 115 22 / 0.3)'
               />
             </g>
@@ -205,33 +198,27 @@ export function QueryTree({ nodes, onQueryClick }: QueryTreeProps) {
             >
               <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
                 <button
-                  onClick={() => hasData && handleNodeClick(node)}
-                  disabled={!hasData}
+                  onMouseDown={(e) => hasData && onQueryClick(node.data!, e)}
+                  onMouseUp={(e) => hasData && onQueryClickEnd(node.data!, e)}
+                  disabled={!hasData || isInteractionDisabled}
                   className={cn(
-                    'w-full h-full rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center',
+                    'w-full h-full rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center px-3',
                     hasData
-                      ? 'bg-orange-500 text-white hover:bg-orange-600 cursor-pointer'
+                      ? isInteractionDisabled
+                        ? 'bg-orange-400 text-white cursor-default'
+                        : 'bg-orange-500 text-white hover:bg-orange-600 cursor-pointer'
                       : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                   )}
                 >
-                  {node.data?.query || `Query ${node.queryNumber}`}
+                  {node.data
+                    ? truncateQuery(node.data.query)
+                    : `Query ${node.queryNumber}`}
                 </button>
               </foreignObject>
             </g>
           );
         })}
       </svg>
-
-      {/* Query Details Sheet */}
-      {selectedQuery && (
-        <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-          <QuerySheet
-            query={selectedQuery}
-            isOpen={isSheetOpen}
-            onOpenChange={setIsSheetOpen}
-          />
-        </Sheet>
-      )}
-    </>
+    </div>
   );
 }

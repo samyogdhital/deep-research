@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Sheet } from '@/components/ui/sheet';
+import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet';
 import { generateQueryTree } from '@/lib/utils';
 import { QueryTree } from '@/components/QueryTree';
 import { QuerySheet } from '@/components/QuerySheet';
@@ -26,288 +26,227 @@ interface RealtimeViewProps {
 export function RealtimeView({ initialData }: RealtimeViewProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [queryNodes, setQueryNodes] = useState<QueryNode[]>(() => {
-    // Generate tree and populate with initial data
     const nodes = generateQueryTree(initialData.depth, initialData.breadth);
-
-    // Update nodes with existing data in sequence
     initialData.serpQueries.forEach((query, index) => {
       const nodeToUpdate = nodes[index];
       if (nodeToUpdate) {
-        nodes[index] = {
-          ...nodeToUpdate,
-          data: query,
-          isEnabled: true,
-        };
+        nodes[index] = { ...nodeToUpdate, data: query, isEnabled: true };
       }
     });
-
     return nodes;
   });
   const [selectedQuery, setSelectedQuery] = useState<SerpQuery | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [researchData, setResearchData] = useState<ResearchData | null>(
-    initialData
-  );
+  const [researchData, setResearchData] = useState<ResearchData>(initialData);
 
-  // Add state for drag and zoom functionality
+  // Core state
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [scale, setScale] = useState(1);
-  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [scale, setScale] = useState(0.8);
+  const [showResetButton, setShowResetButton] = useState(false);
+  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
-  const positionRef = useRef({ x: 0, y: 0 });
 
-  // Handle zoom with Ctrl + wheel
-  const handleWheel = useCallback((e: WheelEvent) => {
-    if (e.ctrlKey) {
-      e.preventDefault();
-      const delta = -e.deltaY;
-      setScale((prev) => Math.min(Math.max(0.5, prev + delta * 0.001), 2));
-    } else if (e.shiftKey) {
-      // Horizontal scroll with Shift + wheel
-      e.preventDefault();
-      const newX = positionRef.current.x - e.deltaY;
-      positionRef.current.x = newX;
-      setPosition((prev) => ({ ...prev, x: newX }));
-    } else {
-      // Vertical scroll without modifier keys
-      e.preventDefault();
-      const newY = positionRef.current.y - e.deltaY;
-      positionRef.current.y = newY;
-      setPosition((prev) => ({ ...prev, y: newY }));
-    }
-  }, []);
+  // Check tree visibility
+  const checkTreeVisibility = useCallback(() => {
+    if (!containerRef.current || !treeRef.current) return;
 
-  // Add wheel event listener
-  useEffect(() => {
-    const container = containerRef.current;
-    if (container) {
-      container.addEventListener('wheel', handleWheel, { passive: false });
-    }
-    return () => {
-      if (container) {
-        container.removeEventListener('wheel', handleWheel);
-      }
-    };
-  }, [handleWheel]);
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const treeRect = treeRef.current.getBoundingClientRect();
 
-  // Check if content is out of view
-  const checkVisibility = useCallback(() => {
-    if (!treeRef.current) return;
-    const rect = treeRef.current.getBoundingClientRect();
+    const padding = 100; // Visibility threshold
     const isOutOfView =
-      rect.top > window.innerHeight ||
-      rect.bottom < 0 ||
-      rect.left > window.innerWidth ||
-      rect.right < 0;
-    setShowScrollButton(isOutOfView);
+      treeRect.left > containerRect.right - padding ||
+      treeRect.right < containerRect.left + padding ||
+      treeRect.top > containerRect.bottom - padding ||
+      treeRect.bottom < containerRect.top + padding;
+
+    setShowResetButton(isOutOfView);
   }, []);
 
-  useEffect(() => {
-    checkVisibility();
-    window.addEventListener('scroll', checkVisibility);
-    window.addEventListener('resize', checkVisibility);
-    return () => {
-      window.removeEventListener('scroll', checkVisibility);
-      window.removeEventListener('resize', checkVisibility);
-    };
-  }, [checkVisibility]);
+  // Reset to center
+  const resetToCenter = useCallback(() => {
+    setPosition({ x: 0, y: 0 });
+    setScale(0.8);
+  }, []);
 
-  // Handle mouse events for dragging
+  // Monitor tree visibility
+  useEffect(() => {
+    const interval = setInterval(checkTreeVisibility, 100);
+    return () => clearInterval(interval);
+  }, [checkTreeVisibility]);
+
+  // Handle node click
+  const handleQueryClick = useCallback(
+    (query: SerpQuery, e: React.MouseEvent) => {
+      setDragStartPos({ x: e.clientX, y: e.clientY });
+    },
+    []
+  );
+
+  // Handle node click end (mouseup)
+  const handleQueryClickEnd = useCallback(
+    (query: SerpQuery, e: React.MouseEvent) => {
+      const deltaX = Math.abs(e.clientX - dragStartPos.x);
+      const deltaY = Math.abs(e.clientY - dragStartPos.y);
+
+      // If it's a small movement (click rather than drag)
+      if (deltaX < 5 && deltaY < 5) {
+        setSelectedQuery(query);
+      }
+    },
+    [dragStartPos]
+  );
+
+  // Handle sheet state change
+  const handleSheetChange = useCallback((open: boolean) => {
+    if (!open) {
+      setSelectedQuery(null);
+    }
+  }, []);
+
+  // Handle dragging
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!isDragging) return;
-
-      const newX = e.clientX - dragStartRef.current.x;
-      const newY = e.clientY - dragStartRef.current.y;
-
-      positionRef.current = { x: newX, y: newY };
-      setPosition({ x: newX, y: newY });
+      if (selectedQuery) return; // Prevent dragging when sheet is open
 
       e.preventDefault();
+      const newX = e.clientX - dragStartRef.current.x;
+      const newY = e.clientY - dragStartRef.current.y;
+      setPosition({ x: newX, y: newY });
+      checkTreeVisibility();
     },
-    [isDragging]
+    [isDragging, checkTreeVisibility, selectedQuery]
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      // Don't initiate drag if clicking inside the sheet
+      if (
+        e.target instanceof Element &&
+        (e.target.closest('[role="dialog"]') || selectedQuery)
+      ) {
+        return;
+      }
+
+      if (e.button !== 0) return;
+      e.preventDefault();
+      setIsDragging(true);
+      dragStartRef.current = {
+        x: e.clientX - position.x,
+        y: e.clientY - position.y,
+      };
+    },
+    [position, selectedQuery]
   );
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only handle left click
-    setIsDragging(true);
-    dragStartRef.current = {
-      x: e.clientX - positionRef.current.x,
-      y: e.clientY - positionRef.current.y,
-    };
-    e.preventDefault();
-  }, []);
-
-  // Add event listeners for mouse move and up
+  // Add drag event listeners
   useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove, { capture: true });
-      window.addEventListener('mouseup', handleMouseUp, { capture: true });
-    }
+    if (!isDragging) return;
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove, {
-        capture: true,
-      });
-      window.removeEventListener('mouseup', handleMouseUp, { capture: true });
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
-  // Initialize socket connection and handle events
+  // Socket connection and handlers
   useEffect(() => {
     const socket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
       withCredentials: true,
       transports: ['websocket'],
     });
 
-    socket.on('connect', () => {
-      console.log('Connected to websocket');
-    });
-
-    // Handle website status updates
-    socket.on('new_serp_query', (data: ResearchData) => {
-      console.log('New SERP query received:', data.serpQueries);
+    const handleData = (data: ResearchData) => {
       setResearchData(data);
       updateNodesWithData(data.serpQueries);
-    });
+    };
 
-    socket.on('scraping_a_website', (data: ResearchData) => {
-      console.log('Website scraping update:', data.serpQueries);
-      setResearchData(data);
-      updateNodesWithData(data.serpQueries);
-    });
-
-    socket.on('analyzing_a_website', (data: ResearchData) => {
-      console.log('Website analyzing update:', data.serpQueries);
-      setResearchData(data);
-      updateNodesWithData(data.serpQueries);
-    });
-
-    socket.on('analyzed_a_website', (data: ResearchData) => {
-      console.log('Website analyzed update:', data.serpQueries);
-      setResearchData(data);
-      updateNodesWithData(data.serpQueries);
-    });
-
+    socket.on('connect', () => console.log('Connected to websocket'));
+    socket.on('new_serp_query', handleData);
+    socket.on('scraping_a_website', handleData);
+    socket.on('analyzing_a_website', handleData);
+    socket.on('analyzed_a_website', handleData);
     socket.on('report_writing_successfull', (data: ResearchData) => {
       window.location.href = `/report/${initialData.report_id}`;
     });
 
     setSocket(socket);
-
     return () => {
       socket.disconnect();
     };
-  }, []); // No dependencies needed since we don't use any external values
+  }, []);
 
-  // Update nodes with incoming data - keeping the full logic as it's necessary for tree updates
   const updateNodesWithData = useCallback((queries: SerpQuery[]) => {
     setQueryNodes((prev) => {
       const updated = [...prev];
-
-      // Update nodes sequentially like in initial load
       queries.forEach((query, index) => {
-        const nodeToUpdate = updated[index];
-        if (nodeToUpdate) {
-          updated[index] = {
-            ...nodeToUpdate,
-            data: query,
-            isEnabled: true,
-          };
+        if (updated[index]) {
+          updated[index] = { ...updated[index], data: query, isEnabled: true };
         }
       });
-
       return updated;
     });
   }, []);
 
-  const handleQueryClick = useCallback(
-    (query: SerpQuery) => {
-      setSelectedQuery(query);
-      setIsSheetOpen(true);
-    },
-    [] // No dependencies needed since we're just setting state
-  );
-
-  const scrollToView = useCallback(() => {
-    if (!treeRef.current) return;
-
-    // Reset both refs and state atomically
-    const resetPosition = { x: 0, y: 0 };
-    positionRef.current = resetPosition;
-    setPosition(resetPosition);
-    setScale(1);
-
-    // Force visibility check after reset
-    setTimeout(checkVisibility, 100);
-  }, [checkVisibility]);
-
-  // Get the latest data for the selected query
-  const selectedQueryData =
-    selectedQuery && researchData
-      ? researchData.serpQueries.find(
-          (q) => q.query_timestamp === selectedQuery.query_timestamp
-        )
-      : null;
-
   return (
     <div
       ref={containerRef}
-      className='min-h-screen bg-gray-50 dark:bg-gray-900 p-8 overflow-hidden relative'
+      className='min-h-screen bg-gray-50 dark:bg-gray-900 relative'
       onMouseDown={handleMouseDown}
       style={{
-        cursor: isDragging ? 'grabbing' : 'grab',
-        userSelect: 'none',
+        cursor: isDragging ? 'grabbing' : selectedQuery ? 'auto' : 'grab',
+        userSelect: selectedQuery ? 'text' : 'none',
+        overflow: 'hidden',
+        width: '100%',
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      <div className='max-w-none'>
-        <h1 className='text-2xl font-bold text-gray-900 dark:text-white mb-8 pointer-events-none'>
-          Research Progress
-        </h1>
+      <div
+        ref={treeRef}
+        style={{
+          transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+          transition: isDragging ? 'none' : 'transform 0.3s ease-out',
+          transformOrigin: 'center center',
+        }}
+      >
+        <QueryTree
+          nodes={queryNodes}
+          onQueryClick={handleQueryClick}
+          onQueryClickEnd={handleQueryClickEnd}
+          isInteractionDisabled={false}
+        />
+      </div>
 
-        {/* Query Tree */}
-        <div
-          ref={treeRef}
-          className='query-tree-container'
+      {showResetButton && (
+        <button
+          onClick={resetToCenter}
+          className='fixed bottom-4 right-4 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg transition-all'
           style={{
-            transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-            transition: isDragging ? 'none' : 'all 0.1s ease-out',
-            willChange: 'transform',
-            transformOrigin: '0 0',
+            zIndex: 9999,
+            pointerEvents: 'auto',
           }}
         >
-          <QueryTree nodes={queryNodes} onQueryClick={handleQueryClick} />
-        </div>
+          Reset View
+        </button>
+      )}
 
-        {/* Scroll to View Button */}
-        {showScrollButton && (
-          <button
-            onClick={scrollToView}
-            className='fixed bottom-4 right-4 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg transition-all'
-            style={{ zIndex: 50 }}
-          >
-            Reset View
-          </button>
-        )}
-
-        {/* Query Details Sheet */}
-        {selectedQueryData && researchData && (
-          <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-            <QuerySheet
-              query={selectedQueryData}
-              isOpen={isSheetOpen}
-              onOpenChange={setIsSheetOpen}
-            />
-          </Sheet>
-        )}
-      </div>
+      {selectedQuery && (
+        <QuerySheet query={selectedQuery} onOpenChange={handleSheetChange} />
+      )}
     </div>
   );
 }

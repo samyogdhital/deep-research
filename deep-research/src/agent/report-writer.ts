@@ -120,7 +120,7 @@ export class ReportWriter {
       - Write in highly technical and detailed manner
       - Include all facts, figures, and technical specifications
       - Organize content into proper sections with appropriate ranks
-      - Generate minimum of 3 sections. If the report demands more sections, you are free to generate how many sections you want. But make sure every section is highly long and technically rich.
+      - Generate minimum of 10 sections. If the report demands more sections, you are free to generate how many sections you want. But make sure every section is highly long and technically rich.
 
       If you need to generate table for comparison purpose, use the following format:
       | Column Heading 1 | Column Heading 2|\n
