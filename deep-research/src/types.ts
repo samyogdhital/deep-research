@@ -1,3 +1,4 @@
+import { DBSchema } from './db';
 import { WebSocketManager } from './websocket';
 
 export interface ScrapedSourceInfo {
@@ -124,14 +125,4 @@ export interface QueryData {
     query_timestamp: number;
 }
 
-export interface WebsiteStatus {
-    id: number;
-    url: string;
-    title: string;
-    description: string;
-    status: 'scraping' | 'analyzing' | 'analyzed';
-    relevance_score: number;
-    is_objective_met: boolean;
-    core_content: string[];
-    facts_figures: string[];
-}
+export type WebsiteStatus = DBSchema['researches'][number]['serpQueries'][number]['successful_scraped_websites'][number]

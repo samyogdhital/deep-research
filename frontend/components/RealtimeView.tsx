@@ -6,6 +6,7 @@ import { generateQueryTree } from '@/lib/utils';
 import { QueryTree } from '@/components/QueryTree';
 import { QuerySheet } from '@/components/QuerySheet';
 import type { ResearchData, SerpQuery } from '@deep-research/db/schema';
+import { Button } from '@/components/ui/button';
 
 interface QueryNode {
   id: number;
@@ -243,6 +244,19 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
         userSelect: selectedQuery ? 'text' : 'none',
       }}
     >
+      {initialData.report?.title && (
+        <div className='fixed top-4 right-4 z-50'>
+          <Button
+            variant='outline'
+            onClick={() =>
+              (window.location.href = `/report/${initialData.report_id}`)
+            }
+            className='text-[#007e81] hover:text-[#006669] dark:text-[#00a3a8] dark:hover:text-[#008589] border-[#007e81] dark:border-[#00a3a8]'
+          >
+            View Report
+          </Button>
+        </div>
+      )}
       <div
         ref={treeRef}
         style={{
@@ -273,7 +287,14 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
       )}
 
       {selectedQuery && (
-        <QuerySheet query={selectedQuery} onOpenChange={handleSheetChange} />
+        <QuerySheet
+          query={
+            researchData.serpQueries.find(
+              (q) => q.query_timestamp === selectedQuery.query_timestamp
+            ) || selectedQuery
+          }
+          onOpenChange={handleSheetChange}
+        />
       )}
     </div>
   );

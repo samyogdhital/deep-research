@@ -1,314 +1,288 @@
-import { generateQueriesWithObjectives } from './agent/query-generator';
-import { WebsiteAnalyzer } from './agent/website-analyzer';
+import { generateQueriesWithObjectives, QueryWithObjective } from './agent/query-generator';
+import { WebsiteAnalysis, WebsiteAnalyzer } from './agent/website-analyzer';
 import { SearxNG } from '../content-extraction/searxng';
 import { Firecrawl } from '../content-extraction/firecrawl';
-import { type ResearchResult, type SearxResult } from './types';
-import { ResearchDB } from './db';
+import { DBSchema, ResearchDB } from './db';
 import { WebSocketManager } from './websocket';
-
-// Define types for MVP
-interface SerpQuery {
-  query: string;
-  objective: string;
-  query_timestamp: number;
-  depth_level: number;
-  parent_query_timestamp: number;
-  successful_scraped_websites: Array<{
-    id: number;
-    url: string;
-    title: string;
-    description: string;
-    status: 'scraping' | 'analyzing' | 'analyzed';
-    relevance_score: number;
-    is_objective_met: boolean;
-    core_content: string[];
-    facts_figures: string[];
-  }>;
-  failedWebsites: Array<{
-    website: string;
-    stage: 'scraping' | 'analyzing';
-  }>;
-}
-
-interface ScrapedWebsite {
-  id: number;
-  url: string;
-  title: string;
-  description: string;
-  status: 'scraping' | 'analyzing' | 'analyzed';
-  relevance_score: number;
-  is_objective_met: boolean;
-  core_content: string[];
-  facts_figures: string[];
-}
+import PQueue from 'p-queue';
+import { ScrapedWebsite, SerpQuery } from './db/schema';
 
 
 
-const MAX_RESULTS_PER_QUERY = 3; // Maximum number of results to process per query for MVP
 
-export async function deepResearch({
-  query_to_find_websites,
-  depth,
-  breadth,
-  researchId,
-  currentDepth = 1,
-  parentQueryTimestamp = 0,
-  wsManager,
-  signal
-}: {
-  query_to_find_websites: string;
-  depth: number;
-  breadth: number;
-  researchId: string;
-  currentDepth?: number;
-  parentQueryTimestamp?: number;
-  wsManager?: WebSocketManager;
-  signal?: AbortSignal;
-}): Promise<ResearchResult> {
-  // Input validation
-  if (!query_to_find_websites?.trim()) throw new Error('Query is required');
-  if (breadth < 1 || depth < 1) throw new Error('Invalid depth or breadth');
+async function deepResearch(researchId: string, wsManager: WebSocketManager) {
+  // Since everything is already in the database we don't even have to pass anything as parameter beside researchId when called inside @server.ts file.
 
-  // Initialize agents and database
+  // Step 1. Let's get all the value from database.
+  const db = await ResearchDB.getInstance();
+  const researchData = await db.getResearchData(researchId);
+  if (!researchData) throw new Error('Research data not found');
+
+  const depth = researchData.depth;
+  const breadth = researchData.breadth;
+
+  // Step 2. generate initial top level serp queries.
+  const initialSerpQueries = await generateQueriesWithObjectives(researchData, 1, breadth, 0);
+
+
+  // Step 2.1 Save to databse and websocket event to notify frontend of new queries
+  for (const query of initialSerpQueries) {
+    const serpQuery: SerpQuery = {
+      ...query,
+      depth_level: 1,
+      successful_scraped_websites: [],
+      failedWebsites: [],
+      parent_query_timestamp: 0
+    };
+    await db.addSerpQuery(researchId, serpQuery);
+    await wsManager.handleNewSerpQuery(researchId);
+  }
+
+  // Step 3. Process each query in parallel using queue
+  const queue = new PQueue({ concurrency: breadth });
+
+  // Step 4. Initialize searxng, firecrawl and websiteAnalyzer.
   const searxng = new SearxNG();
   const firecrawl = new Firecrawl();
   const websiteAnalyzer = new WebsiteAnalyzer();
-  const db = await ResearchDB.getInstance();
 
-  let failedUrls: string[] = [];
+  // Step 4. Process each query in parallel using queue
+  const processPromises = initialSerpQueries.map((serpQuery) =>
+    queue.add(async (): Promise<WebsiteAnalysis[]> => {
+      const processQueryAtDepth = async (serpQuery: QueryWithObjective, currentDepth: number): Promise<WebsiteAnalysis[]> => {
+        try {
+          // Step 1. SearxNG this query.
+          const searchResults: DBSchema['researches'][number]['serpQueries'][number]['successful_scraped_websites'] = (await searxng.search(serpQuery.query)).map((result, index) => ({
+            id: index + 1,
+            url: result.url,
+            title: result.title || result.url,
+            description: result.content || '',
+            status: 'scraping',
+            relevance_score: 0,
+            is_objective_met: false,
+            core_content: [],
+            facts_figures: [],
+          }));
 
-  try {
-    // Get fresh DB data right before generating queries
-    const freshDbData = await db.getResearchData(researchId);
-    if (!freshDbData) {
-      throw new Error('Research data not found');
-    }
+          // Step 1.1. Save to database and notify frontend.
+          await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, searchResults as ScrapedWebsite[], []);
+          if (wsManager) await wsManager.handleGotWebsitesFromSerpQuery(researchId); await Promise.all(searchResults.map(website =>
+            wsManager.handleWebsiteScraping(researchId, website) // Notify scraping start
+          ));
 
-    // Generate queries with fresh DB data
-    const queries = await generateQueriesWithObjectives(
-      freshDbData,
-      currentDepth,
-      breadth,
-      currentDepth > 1 ? parentQueryTimestamp : undefined
-    );
-    console.log(`[Depth ${currentDepth}] Generated ${queries.length} queries`);
 
-    // Create all serp queries
-    const serpQueries = queries.map(query => ({
-      query: query.query,
-      objective: query.objective,
-      query_timestamp: Date.now(),
-      depth_level: currentDepth,
-      parent_query_timestamp: parentQueryTimestamp,
-      successful_scraped_websites: [],
-      failedWebsites: []
-    }));
+          // Step 2. Scrape all the websites.
+          const scrapedContents = await firecrawl.scrapeWebsites(searchResults.map(r => r.url));
 
-    // Add all queries to DB and notify in parallel
-    await Promise.all([
-      ...serpQueries.map(serpQuery => db.addSerpQuery(researchId, serpQuery)),
-      ...(wsManager ? serpQueries.map(() => wsManager.handleNewSerpQuery(researchId)) : [])
-    ]);
 
-    // Create a promise for each query's completion
-    const queryPromises = serpQueries.map(async (serpQuery) => {
-      try {
-        console.log(`[Depth ${currentDepth}] Processing query: "${serpQuery.query}"`);
+          // Step 2.1: Update database with scraping results
+          // First, identify which websites failed to scrape by checking which URLs from searchResults
+          // don't appear in scrapedContents. Mark these as failed scrapes.
+          const failedScrapes: DBSchema['researches'][number]['serpQueries'][number]['failedWebsites'] = searchResults
+            .filter(w => !scrapedContents.some(sc => sc.url === w.url))
+            .map(w => ({ website: w.url, stage: 'failed' }));
 
-        // Process websites for this query
-        await processWebsites(serpQuery, currentDepth, {
-          searxng,
-          firecrawl,
-          websiteAnalyzer,
-          db,
-          researchId,
-          wsManager
-        });
+          // Then, identify which websites were successfully scraped by finding URLs that exist
+          // in both searchResults and scrapedContents
+          const successfulWebsites = searchResults.filter(w => scrapedContents.some(sc => sc.url === w.url));
 
-        // If this query has results and we need to go deeper, process its children immediately
-        if (currentDepth < depth && (serpQuery.successful_scraped_websites as ScrapedWebsite[]).some(w => w.status === 'analyzed')) {
-          // Get fresh DB data for child queries
-          const freshChildDbData = await db.getResearchData(researchId);
-          if (!freshChildDbData) {
-            throw new Error('Research data not found for child queries');
+          // For the successful websites, update their status to 'analyzing' since they'll be 
+          // analyzed in the next step. We use 'as const' to ensure type safety.
+          const updatedSuccessfulWebsites = successfulWebsites.map(w => ({
+            ...w,
+            status: 'analyzing' as const
+          }));
+
+          // Finally, update the database with both the successful websites (now marked for analysis)
+          // and the failed scrapes
+          await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, updatedSuccessfulWebsites, failedScrapes);
+
+
+          // Step 3. Analyze the websites.
+          const analysisPromises = scrapedContents.map(async ({ url, markdown }) => {
+            const website = successfulWebsites.find(w => w.url === url);
+            if (!website) return null;
+
+            // Update the status of the website to 'analyzing'
+            await db.updateWebsiteStatus(researchId, serpQuery.query_timestamp, url, {
+              status: 'analyzing'
+            });
+            await wsManager.handleWebsiteAnalyzing(researchId, website);
+
+            // Perform analysis on the website through website analyzing agent.
+            const websiteAnalysis = await websiteAnalyzer.analyzeContent(
+              { url, markdown },
+              serpQuery.objective
+            );
+
+            if (websiteAnalysis) {
+              // Update the website with analysis results
+              await db.updateWebsiteStatus(researchId, serpQuery.query_timestamp, url, {
+                status: 'analyzed',
+                relevance_score: websiteAnalysis.relevance_score,
+                is_objective_met: websiteAnalysis.is_objective_met,
+                core_content: websiteAnalysis.core_content,
+                facts_figures: websiteAnalysis.facts_figures
+              });
+              await wsManager.handleWebsiteAnalyzed(researchId, website);
+              return websiteAnalysis;
+            } else {
+              // Mark website as failed
+              await db.updateWebsiteStatus(researchId, serpQuery.query_timestamp, url, {
+                status: 'failed'
+              });
+              failedScrapes.push({ website: url, stage: 'failed' });
+              await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, updatedSuccessfulWebsites.filter(w => w.url !== url), failedScrapes);
+              return null;
+            }
+          });
+
+          // Collect results and filter out null values
+          const allScrapedContents = (await Promise.all(analysisPromises)).filter(analysis => analysis !== null);
+
+          // Step 4: Generate and process child queries if not at max depth
+          if (currentDepth < depth) {
+
+            // Generate child queries based on the current query's findings
+            const numChildren = Math.ceil(breadth / 2);
+            const childQueries = await generateQueriesWithObjectives(
+              researchData,
+              currentDepth + 1,
+              numChildren,
+              serpQuery.query_timestamp // Pass parent query ID or reference
+            );
+
+            // Step 4.1: Save child queries to database and notify
+            const childPromises = childQueries.map(async (childQuery) => {
+              const childSerpQuery: SerpQuery = {
+                ...childQuery,
+                depth_level: currentDepth + 1,
+                successful_scraped_websites: [],
+                failedWebsites: [],
+                parent_query_timestamp: serpQuery.query_timestamp
+              };
+              await db.addSerpQuery(researchId, childSerpQuery);
+              await wsManager.handleNewSerpQuery(researchId);
+
+              // Process each child query immediately after adding it
+              const childSearchResults = (await searxng.search(childQuery.query)).map((result, index) => ({
+                id: index + 1,
+                url: result.url,
+                title: result.title || result.url,
+                description: result.content || '',
+                status: 'scraping' as const,
+                relevance_score: 0,
+                is_objective_met: false,
+                core_content: [],
+                facts_figures: [],
+              }));
+
+              // Update database and notify frontend for child query results
+              await db.updateSerpQueryResults(researchId, childQuery.query_timestamp, childSearchResults as ScrapedWebsite[], []);
+              if (wsManager) {
+                await wsManager.handleGotWebsitesFromSerpQuery(researchId);
+                await Promise.all(childSearchResults.map(website =>
+                  wsManager.handleWebsiteScraping(researchId, website)
+                ));
+              }
+
+              // Now process these websites through scraping and analysis
+              const scrapedContents = await firecrawl.scrapeWebsites(childSearchResults.map(r => r.url));
+
+              // Handle failed scrapes
+              const failedScrapes = childSearchResults
+                .filter(w => !scrapedContents.some(sc => sc.url === w.url))
+                .map(w => ({ website: w.url, stage: 'failed' as const }));
+
+              // Handle successful scrapes
+              const successfulWebsites = childSearchResults.filter(w =>
+                scrapedContents.some(sc => sc.url === w.url)
+              );
+
+              // Process analysis
+              const analysisPromises = scrapedContents.map(async ({ url, markdown }) => {
+                const website = successfulWebsites.find(w => w.url === url);
+                if (!website) return null;
+
+                // Update status to analyzing and notify
+                await db.updateWebsiteStatus(researchId, childQuery.query_timestamp, url, {
+                  status: 'analyzing'
+                });
+                await wsManager.handleWebsiteAnalyzing(researchId, website);
+
+                const websiteAnalysis = await websiteAnalyzer.analyzeContent(
+                  { url, markdown },
+                  childQuery.objective
+                );
+
+                if (websiteAnalysis) {
+                  await db.updateWebsiteStatus(researchId, childQuery.query_timestamp, url, {
+                    status: 'analyzed',
+                    relevance_score: websiteAnalysis.relevance_score,
+                    is_objective_met: websiteAnalysis.is_objective_met,
+                    core_content: websiteAnalysis.core_content,
+                    facts_figures: websiteAnalysis.facts_figures
+                  });
+                  await wsManager.handleWebsiteAnalyzed(researchId, website);
+                  return websiteAnalysis;
+                } else {
+                  await db.updateWebsiteStatus(researchId, childQuery.query_timestamp, url, {
+                    status: 'failed'
+                  });
+                  failedScrapes.push({ website: url, stage: 'failed' as const });
+                  await db.updateSerpQueryResults(
+                    researchId,
+                    childQuery.query_timestamp,
+                    successfulWebsites.filter(w => w.url !== url),
+                    failedScrapes
+                  );
+                  return null;
+                }
+              });
+
+              const childAnalyses = (await Promise.all(analysisPromises)).filter((analysis): analysis is WebsiteAnalysis => analysis !== null);
+
+              // Process next depth level if needed
+              if (currentDepth + 1 < depth) {
+                const nextDepthResults = await queue.add(async () => {
+                  const results = await processQueryAtDepth(childQuery as QueryWithObjective, currentDepth + 1);
+                  return results;
+                });
+                return [...childAnalyses, ...(nextDepthResults || [])];
+              }
+
+              return childAnalyses;
+            });
+
+            // Wait for all child queries to complete and collect their results
+            const childResults = await Promise.all(childPromises);
+            const allChildAnalyses = childResults.flat();
+
+            // Combine parent and child results
+            return [...allScrapedContents, ...allChildAnalyses];
           }
 
-          // Generate child queries
-          const childQueries = await generateQueriesWithObjectives(
-            freshChildDbData,
-            currentDepth + 1,
-            Math.ceil(breadth / 2),
-            serpQuery.query_timestamp
-          );
-          console.log(`[Depth ${currentDepth}] Generated ${childQueries.length} child queries for "${serpQuery.query}"`);
+          return allScrapedContents;
 
-          // Process all child queries in parallel and wait for them
-          const childPromises = childQueries.map(childQuery => {
-            console.log(`[Depth ${currentDepth}] Starting child query: "${childQuery.query}"`);
-            return deepResearch({
-              query_to_find_websites: childQuery.query,
-              breadth: Math.ceil(breadth / 2),
-              depth,
-              researchId,
-              currentDepth: currentDepth + 1,
-              parentQueryTimestamp: serpQuery.query_timestamp,
-              wsManager
-            });
-          });
-
-          // Wait for all child queries to complete
-          const childResults = await Promise.all(childPromises);
-          childResults.forEach(result => {
-            failedUrls.push(...result.failedUrls);
-          });
-        }
-      } catch (error) {
-        console.error(`[Depth ${currentDepth}] Error processing query "${serpQuery.query}":`, error);
-        failedUrls.push(serpQuery.query);
-      }
-    });
-
-    // Wait for all queries at this depth to complete
-    await Promise.all(queryPromises);
-
-    return {
-      failedUrls: [...new Set(failedUrls)]
-    };
-  } catch (error) {
-    console.error(`[Depth ${currentDepth}] Error in deepResearch:`, error);
-    throw error;
-  }
-}
-
-// Add this helper function to process websites
-async function processWebsites(
-  serpQuery: SerpQuery,
-  currentDepth: number,
-  {
-    searxng,
-    firecrawl,
-    websiteAnalyzer,
-    db,
-    researchId,
-    wsManager
-  }: {
-    searxng: SearxNG;
-    firecrawl: Firecrawl;
-    websiteAnalyzer: WebsiteAnalyzer;
-    db: ResearchDB;
-    researchId: string;
-    wsManager?: WebSocketManager;
-  }
-): Promise<void> {
-  // Start search immediately and let it run in parallel
-  const searchPromise = searxng.search(serpQuery.query);
-
-  // Initialize empty website objects immediately
-  serpQuery.successful_scraped_websites = [];
-  serpQuery.failedWebsites = [];
-
-  // Get search results
-  const searchResults = await searchPromise;
-  const limitedResults = searchResults.slice(0, MAX_RESULTS_PER_QUERY);
-  console.log(`[Depth ${currentDepth}] Found ${searchResults.length} results, using ${limitedResults.length} for query "${serpQuery.query}"`);
-
-  // Initialize website objects with IDs
-  serpQuery.successful_scraped_websites = limitedResults.map((result: SearxResult, index: number) => ({
-    id: index + 1,
-    url: result.url,
-    title: result.title || result.url,
-    description: result.content || '',
-    status: 'scraping',
-    relevance_score: 0,
-    is_objective_met: false,
-    core_content: [],
-    facts_figures: []
-  }));
-
-  // Start scraping immediately
-  const scrapePromise = firecrawl.scrapeWebsites(limitedResults.map(r => r.url));
-
-  // First update DB
-  await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
-
-  // Then send WebSocket notifications
-  if (wsManager) {
-    await wsManager.handleGotWebsitesFromSerpQuery(researchId);
-    await Promise.all(serpQuery.successful_scraped_websites.map(website =>
-      wsManager.handleWebsiteScraping(researchId, website)
-    ));
-  }
-
-  // Get scrape results
-  const scrapedContents = await scrapePromise;
-  console.log(`[Depth ${currentDepth}] Successfully scraped ${scrapedContents.length} URLs for query "${serpQuery.query}"`);
-
-  // Handle failed scrapes
-  const failedScrapes = limitedResults
-    .filter(r => !scrapedContents.some(sc => sc.url === r.url))
-    .map(r => ({
-      website: r.url,
-      stage: 'scraping' as const
-    }));
-
-  if (failedScrapes.length > 0) {
-    console.log(`[Depth ${currentDepth}] Failed to scrape ${failedScrapes.length} URLs for query "${serpQuery.query}":`, failedScrapes.map(f => f.website));
-  }
-
-  // Remove failed websites and update DB
-  serpQuery.successful_scraped_websites = serpQuery.successful_scraped_websites
-    .filter(w => !failedScrapes.some(f => f.website === w.url));
-  serpQuery.failedWebsites = failedScrapes;
-  await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
-
-  // Process successful scrapes in parallel
-  const analysisPromises = scrapedContents.map(async (content) => {
-    try {
-      const website = serpQuery.successful_scraped_websites.find(w => w.url === content.url);
-      if (!website || !('id' in website)) return;
-
-      // Update status to analyzing and notify
-      website.status = 'analyzing';
-      await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
-      if (wsManager) {
-        await wsManager.handleWebsiteAnalyzing(researchId, website);
-      }
-
-      console.log(`[Depth ${currentDepth}] Analyzing website: ${content.url}`);
-      const website_analysis = await websiteAnalyzer.analyzeContent({
-        url: content.url,
-        markdown: content.markdown
-      }, serpQuery.objective);
-
-      if (website_analysis?.is_objective_met) {
-        website.status = 'analyzed';
-        website.relevance_score = website_analysis.relevance_score;
-        website.is_objective_met = website_analysis.is_objective_met;
-        website.core_content = website_analysis.core_content;
-        website.facts_figures = website_analysis.facts_figures;
-
-        await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
-        if (wsManager) {
-          await wsManager.handleWebsiteAnalyzed(researchId, website);
+          // Step 4. We save all the analysis on database and consider new layer of query.
+        } catch (error) {
+          console.error(`Error processing query "${serpQuery.query}":`, error);
+          return []; // Return empty array on failure
         }
       }
-    } catch (error) {
-      console.error(`[Depth ${currentDepth}] Failed to analyze ${content.url}:`, error);
-      const failedWebsite = serpQuery.successful_scraped_websites.find(w => w.url === content.url);
-      if (failedWebsite) {
-        serpQuery.successful_scraped_websites = serpQuery.successful_scraped_websites.filter(w => w.url !== content.url);
-        serpQuery.failedWebsites.push({
-          website: content.url,
-          stage: 'analyzing'
-        });
-        await db.updateSerpQueryResults(researchId, serpQuery.query_timestamp, serpQuery.successful_scraped_websites, serpQuery.failedWebsites);
-      }
-    }
-  });
 
-  // Wait for all analyses to complete
-  await Promise.all(analysisPromises);
+      return processQueryAtDepth(serpQuery, 1);
+    })
+  );
+
+  const result = (await Promise.all(processPromises)).flat() as WebsiteAnalysis[];
+
+
+  return result
+
 }
+
+export { deepResearch }
 
 // Do not remove this comment at any cost. Below is the requirement for this current file.
 // Reanalyze current solution that you proposed through analyzing @server.ts and @deep-research.ts, And tell me if I implement your above suggestion then will it parallelize every query and then go deeper on each of these query and then parallelize the child query infinitely if it has to go to infinite depth?

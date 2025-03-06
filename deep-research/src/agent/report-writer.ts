@@ -8,12 +8,20 @@
 
 import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
-import { InformationCruncher } from './information-cruncher';
 import { encode, isWithinTokenLimit } from 'gpt-tokenizer';
 import { DBSchema } from '../db';
-// import { encode } from 'gpt-tokenizer';
-// import { InformationCruncher } from '../information-cruncher';
 
+
+const fs = require('fs');
+const path = require('path');
+
+function saveNote(content: string, title = 'output') {
+    const fileName = `${title}.md`;
+    const filePath = path.join(__dirname, fileName);
+
+    fs.writeFileSync(filePath, content, 'utf8');
+    console.log(`Note saved as ${fileName}`);
+}
 
 export interface ReportResult {
     title: string;
@@ -43,8 +51,8 @@ export class ReportWriter {
 
         const structuredPrompt = generateContextforReportWriterAgent(params.db_research_data);
         const tokens = encode(structuredPrompt);
-        console.log(`Tokens: ${tokens.length}`);
-        console.log("✍️✍️", structuredPrompt, "✅✅");
+        console.log("✍️✍️", `Tokens: ${tokens.length}`, `Prompt: ${structuredPrompt}`, "✅✅");
+        saveNote(structuredPrompt);
 
         // This schema is absolutely necessary for pushing data to database for the report section.
         // Every field is required to ensure Gemini doesn't miss any fields in the response.

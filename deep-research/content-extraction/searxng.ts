@@ -9,8 +9,10 @@ export class SearxNG {
                 throw new Error('SEARXNG_BASE_URL not configured');
             }
 
-            const formattedQuery = encodeURIComponent(query.trim());
-            const url = `${process.env.SEARXNG_BASE_URL}/search?q=${formattedQuery}&format=json&language=en&time_range=year`;
+            const formattedQuery = query.trim();
+            const url = `${process.env.SEARXNG_BASE_URL}/search?q=${encodeURIComponent(formattedQuery)}&format=json`;
+            // &language=en&time_range=year
+            console.log({ url })
 
             const response = await fetch(url, {
                 method: "GET",
@@ -33,13 +35,13 @@ export class SearxNG {
                 .map(r => ({
                     url: r.url,
                     title: r.title,
-                    content: '',  // Will be populated by scraper
-                    markdown: ''  // Will be populated by scraper
+                    content: r.content,
                 } as SearxResult));
 
             return validResults.slice(0, 7);
 
         } catch (error) {
+            console.log(`❌❌ Searxng file throws error: ${error}`)
             return []; // Return empty array instead of throwing
         }
     }

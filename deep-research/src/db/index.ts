@@ -3,7 +3,7 @@ import { JSONFile } from 'lowdb/node'
 import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
-import { ResearchData, SerpQuery, FollowUpQnA, Report, InformationCrunchingResult, ScrapedWebsite } from './schema'
+import { ResearchData, FollowUpQnA, Report, InformationCrunchingResult, ScrapedWebsite, SerpQuery } from './schema'
 import { WebsiteStatus } from '../types'
 
 // Match the final_database_schema from response-schema.ts
@@ -30,7 +30,7 @@ export interface DBSchema {
                 url: string;
                 title: string;
                 description: string;
-                status: 'scraping' | 'analyzing' | 'analyzed';
+                status: 'scraping' | 'analyzing' | 'analyzed' | 'failed';
                 relevance_score: number;
                 is_objective_met: boolean;
                 core_content: string[];
@@ -38,7 +38,7 @@ export interface DBSchema {
             }>;
             failedWebsites: Array<{
                 website: string;
-                stage: 'scraping' | 'analyzing';
+                stage: 'failed';
             }>;
         }>;
         information_crunching_agent: {
@@ -158,7 +158,7 @@ class ResearchDB {
         researchId: string,
         queryTimestamp: number,
         successfulWebsites: ScrapedWebsite[],
-        failedWebsites: Array<{ website: string; stage: 'scraping' | 'analyzing' }>
+        failedWebsites: DBSchema['researches'][number]['serpQueries'][number]['failedWebsites']
     ): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
@@ -243,7 +243,7 @@ class ResearchDB {
         return true;
     }
 
-    async getResearchData(researchId: string): Promise<DBSchema['researches'][0] | null> {
+    async getResearchData(researchId: string): Promise<DBSchema['researches'][number] | null> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         return research || null;
@@ -275,7 +275,12 @@ class ResearchDB {
         return true;
     }
 
-    async updateWebsiteStatus(researchId: string, queryTimestamp: number, website: WebsiteStatus): Promise<boolean> {
+    async updateWebsiteStatus(
+        researchId: string,
+        queryTimestamp: number,
+        websiteUrl: string,
+        websiteUpdate: Partial<DBSchema['researches'][number]['serpQueries'][number]['successful_scraped_websites'][number]>
+    ): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === researchId);
         if (!research) return false;
@@ -283,10 +288,16 @@ class ResearchDB {
         const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
         if (!query) return false;
 
-        const websiteIndex = query.successful_scraped_websites.findIndex(w => w.id === website.id);
+        const websiteIndex = query.successful_scraped_websites.findIndex(w => w.url === websiteUrl);
         if (websiteIndex === -1) return false;
 
-        query.successful_scraped_websites[websiteIndex] = website;
+        // Update only the specified fields while preserving required fields
+        const currentWebsite = query.successful_scraped_websites[websiteIndex];
+        query.successful_scraped_websites[websiteIndex] = {
+            ...currentWebsite,  // Keep all existing required fields
+            ...websiteUpdate    // Update with new values
+        } as ScrapedWebsite;
+
         await this.db.write();
         return true;
     }

@@ -1,45 +1,17 @@
 // Schema types for the deep research database
 
+import { DBSchema } from '.';
+
 export interface FollowUpQnA {
     id: number;
     question: string;
     answer: string;
 }
 
-export interface ScrapedWebsite {
-    id: number;
-    url: string;
-    title: string;
-    description: string;
-    status: 'scraping' | 'analyzing' | 'analyzed';
-    relevance_score: number;
-    is_objective_met: boolean;
-    core_content: string[];
-    facts_figures: string[];
-}
+export type ScrapedWebsite = DBSchema['researches'][number]['serpQueries'][number]['successful_scraped_websites'][number]
 
-export interface SerpQuery {
-    query: string;
-    objective: string;
-    query_timestamp: number;
-    depth_level: number;
-    parent_query_timestamp: number;
-    successful_scraped_websites: Array<{
-        id: number;
-        url: string;
-        title: string;
-        description: string;
-        status: 'scraping' | 'analyzing' | 'analyzed';
-        relevance_score: number;
-        is_objective_met: boolean;
-        core_content: string[];
-        facts_figures: string[];
-    }>;
-    failedWebsites: Array<{
-        website: string;
-        stage: 'scraping' | 'analyzing';
-    }>;
-}
+
+export type SerpQuery = DBSchema['researches'][number]['serpQueries'][number]
 
 export interface CrunchedInformation {
     url: string;

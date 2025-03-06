@@ -23,8 +23,10 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
         style={{ userSelect: 'text', cursor: 'auto' }}
       >
         <SheetHeader>
-          <SheetTitle className='text-xl font-bold'>{query.query}</SheetTitle>
-          <SheetDescription className='text-sm text-gray-500 dark:text-gray-400 mt-2'>
+          <SheetTitle className='text-xl font-bold break-words'>
+            {query.query}
+          </SheetTitle>
+          <SheetDescription className='text-sm text-gray-500 dark:text-gray-400 mt-2 break-words'>
             {query.objective}
           </SheetDescription>
         </SheetHeader>
@@ -38,32 +40,44 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
                 className='border dark:border-gray-800 rounded-lg p-4 space-y-3'
               >
                 {/* Website Header */}
-                <div className='flex items-start justify-between'>
-                  <div className='space-y-1'>
-                    <h4 className='font-medium text-gray-900 dark:text-gray-100'>
+                <div className='flex flex-col sm:flex-row sm:items-start gap-2'>
+                  <div
+                    className='space-y-1 min-w-0 flex-1'
+                    style={{ maxWidth: 'calc(100% - 120px)' }}
+                  >
+                    <h4 className='font-medium text-gray-900 dark:text-gray-100 break-words hyphens-auto mb-4'>
                       {website.title || website.url}
                     </h4>
-                    <p className='text-sm text-gray-500 dark:text-gray-400'>
+                    <p className='text-sm text-gray-500 dark:text-gray-400 break-all'>
                       {website.url}
                     </p>
                   </div>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex-shrink-0 self-start w-[100px]'>
                     {website.status === 'scraping' && (
-                      <div className='flex items-center text-yellow-500 dark:text-yellow-400'>
-                        <CircleIcon className='w-4 h-4 mr-1 animate-pulse' />
+                      <div className='flex items-center text-yellow-500 dark:text-yellow-400 whitespace-nowrap'>
+                        <CircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
                         <span className='text-sm'>Scraping</span>
                       </div>
                     )}
                     {website.status === 'analyzing' && (
-                      <div className='flex items-center text-blue-500 dark:text-blue-400'>
-                        <CircleIcon className='w-4 h-4 mr-1 animate-pulse' />
+                      <div className='flex items-center text-blue-500 dark:text-blue-400 whitespace-nowrap'>
+                        <CircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
                         <span className='text-sm'>Analyzing</span>
                       </div>
                     )}
                     {website.status === 'analyzed' && (
-                      <div className='flex items-center text-green-500 dark:text-green-400'>
-                        <CheckCircleIcon className='w-4 h-4 mr-1' />
-                        <span className='text-sm'>Analyzed</span>
+                      <div className='flex items-center whitespace-nowrap'>
+                        {website.is_objective_met ? (
+                          <div className='flex items-center text-green-500 dark:text-green-400'>
+                            <CheckCircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
+                            <span className='text-sm'>Analyzed</span>
+                          </div>
+                        ) : (
+                          <div className='flex items-center text-orange-500 dark:text-orange-400'>
+                            <XCircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
+                            <span className='text-sm'>Not Relevant</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -79,7 +93,9 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
                       <div className='bg-gray-50 dark:bg-gray-800 rounded-md p-3'>
                         <ul className='list-disc list-inside space-y-2 text-sm text-gray-600 dark:text-gray-300'>
                           {website.core_content.map((info, i) => (
-                            <li key={i}>{info}</li>
+                            <li key={i} className='break-words'>
+                              <span className='break-words'>{info}</span>
+                            </li>
                           ))}
                         </ul>
                       </div>

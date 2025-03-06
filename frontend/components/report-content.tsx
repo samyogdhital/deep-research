@@ -264,14 +264,23 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
             <h1 className='text-4xl font-bold mb-3 text-gray-900 dark:text-gray-50'>
               {report.title}
             </h1>
-            {report.timestamp && (
-              <p className='text-sm text-gray-500 dark:text-gray-400'>
-                Created{' '}
-                {formatDistanceToNow(new Date(report.timestamp), {
-                  addSuffix: true,
-                })}
-              </p>
-            )}
+            <div className='flex items-center justify-between'>
+              {report.timestamp && (
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Created{' '}
+                  {formatDistanceToNow(new Date(report.timestamp), {
+                    addSuffix: true,
+                  })}
+                </p>
+              )}
+              <Button
+                variant='link'
+                onClick={() => (window.location.href = `/realtime/${reportId}`)}
+                className='text-[#007e81] hover:text-[#006669] dark:text-[#00a3a8] dark:hover:text-[#008589]'
+              >
+                Realtime page
+              </Button>
+            </div>
           </div>
         </div>
 

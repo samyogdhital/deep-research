@@ -6,12 +6,13 @@ import { Schema, SchemaType } from '@google/generative-ai';
 
 import { generateObject } from '../ai/providers';
 import { DBSchema } from '../db';
-import { SerpQueryResult } from '../types';
 import { DBResearchData } from './report-writer';
 
 export interface QueryWithObjective {
     query: string;
     objective: string;
+    query_timestamp: number;
+    parent_query_timestamp: number;
 }
 
 const QUERY_SCHEMA: Schema = {
@@ -57,7 +58,6 @@ export async function generateQueriesWithObjectives(
         parent_query_timestamp || 0 // Safe to pass 0 for depth 1 as it won't be used
     );
 
-    console.log("🔍🔍", structuredPrompt, "🔍🔍");
     try {
         const { response } = await generateObject({
             system: `You are the high quality SERP query generating agent. Your role is to analyze the user's query and followup questions list. Then generate a bunch of short very detailed serp queries that in total entirely summarizes the entire question user is asking. Such that if you scrape the list of websites that you get under each of these queires, there is 100% chance that user's question will be 100% precisely answered in great highly technical detail. Today is ${new Date().toISOString()}. Follow these instructions when responding:
@@ -66,7 +66,7 @@ export async function generateQueriesWithObjectives(
     `,
             prompt: `
 Given this research context, generate ${numQueries} strategic search queries to find the list of websites we can scrape and get the percise and 100% answer to the question user is asking below.
-
+Make sure you only generate ${numQueries} queries only.
 CONTEXT:
 ${structuredPrompt}
 `,
@@ -76,7 +76,7 @@ ${structuredPrompt}
             },
         });
 
-        const result = JSON.parse(response.text());
+        const result: { queries: Pick<QueryWithObjective, "query" | "objective">[] } = JSON.parse(response.text());
 
         if (
             !result?.queries ||
@@ -86,7 +86,13 @@ ${structuredPrompt}
             throw new Error('No valid queries generated');
         }
 
-        return result.queries;
+        return result.queries.map((query, index: number) => ({
+            ...query,
+            query_timestamp: Date.now() + index,
+            parent_query_timestamp: parent_query_timestamp || 0
+        }));
+
+
     } catch (error) {
         console.error('Error generating queries:', error);
         throw error;

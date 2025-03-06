@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TbSend2 } from 'react-icons/tb';
 import { Button } from '@/components/ui/button';
-import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { ArrowBigRight } from 'lucide-react';
 
@@ -33,7 +32,7 @@ export default function Home() {
   const [state, setState] = useState<ResearchState>({
     step: 'input',
     initialPrompt: 'space based datacenter.',
-    depth: 3,
+    depth: 2,
     breadth: 2,
     followUps_num: 1,
     followUps_QnA: [],
@@ -439,7 +438,7 @@ export default function Home() {
                             dark:focus:ring-[#007e81] dark:focus:ring-offset-[#202121]
                             transition-all duration-200
                             resize-none overflow-y-auto min-h-[120px] max-h-[400px]'
-                        value={qa.answer}
+                        value={qa.answer || 'all'}
                         onChange={(e) => {
                           handleAnswerChange(qa.id, e.target.value);
                           // Auto-expand logic

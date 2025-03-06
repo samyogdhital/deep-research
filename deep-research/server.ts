@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction, ErrorRequestHandler } from 'express';
+import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import { deepResearch } from './src/deep-research';
@@ -7,10 +7,6 @@ import { generateFollowUps } from './src/agent/prompt-analyzer';
 import { ReportWriter } from './src/agent/report-writer';
 import { WebSocketManager, ResearchState } from './src/websocket';
 import { config as envConfig } from 'dotenv';
-import { ResearchProgress, DeepResearchOptions, WebsiteResult, CrunchedInfo, QueryData } from './src/types';
-import { SerpQuery } from './src/db/schema';
-import crypto from 'crypto';
-import type { DBSchema } from './src/db';
 
 envConfig();
 const app = express();
@@ -102,6 +98,18 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
                 breadth,
                 followUps_num: Object.keys(followUpAnswers || {}).length
             });
+
+            // Update followup answers
+            if (followUpAnswers && existingResearch.followUps_QnA) {
+                for (const qa of existingResearch.followUps_QnA) {
+                    if (followUpAnswers[qa.question]) {
+                        await db.updateFollowUpAnswer(report_id, {
+                            ...qa,
+                            answer: followUpAnswers[qa.question]
+                        });
+                    }
+                }
+            }
         } else {
             // Initialize new research
             report_id = await db.initializeResearch(
@@ -110,16 +118,18 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
                 breadth,
                 Object.keys(followUpAnswers || {}).length
             );
-        }
 
-        // Save follow-up QnA
-        if (followUpAnswers) {
-            for (const [question, answer] of Object.entries(followUpAnswers)) {
-                await db.addFollowUpQnA(report_id, {
-                    id: Date.now(),
-                    question,
-                    answer: answer as string
-                });
+            // Update followup answers for the newly created research
+            if (followUpAnswers) {
+                const existingQnA = (await db.getResearchData(report_id))?.followUps_QnA || [];
+                for (const qa of existingQnA) {
+                    if (followUpAnswers[qa.question]) {
+                        await db.updateFollowUpAnswer(report_id, {
+                            ...qa,
+                            answer: followUpAnswers[qa.question]
+                        });
+                    }
+                }
             }
         }
 
@@ -142,14 +152,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
         try {
             // Start deep research process
-            await deepResearch({
-                query_to_find_websites: initial_query,
-                depth,
-                breadth,
-                researchId: report_id,
-                wsManager,
-                signal: controller.signal
-            });
+            await deepResearch(report_id, wsManager);
 
             // Get fresh data before report generation
             const freshResearchData = await db.getResearchData(report_id);
