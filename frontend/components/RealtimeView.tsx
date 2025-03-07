@@ -212,8 +212,32 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     socket.on('scraping_a_website', handleData);
     socket.on('analyzing_a_website', handleData);
     socket.on('analyzed_a_website', handleData);
+
+    // Specific handlers for report status changes
+    socket.on('report_writing_start', (data: ResearchData) => {
+      if (!data.report) return;
+      setResearchData({
+        ...data,
+        report: {
+          ...data.report,
+          status: 'in-progress',
+        },
+      });
+      updateNodesWithData(data.serpQueries);
+    });
+
     socket.on('report_writing_successfull', (data: ResearchData) => {
-      window.location.href = `/report/${initialData.report_id}`;
+      if (!data.report) return;
+      setResearchData({
+        ...data,
+        report: {
+          ...data.report,
+          status: 'completed',
+        },
+      });
+      updateNodesWithData(data.serpQueries);
+
+      window.location.href = `/report/${data.report_id}`;
     });
 
     setSocket(socket);
@@ -270,6 +294,7 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
           onQueryClick={handleQueryClick}
           onQueryClickEnd={handleQueryClickEnd}
           isInteractionDisabled={false}
+          reportStatus={researchData.report?.status || 'no-start'}
         />
       </div>
 

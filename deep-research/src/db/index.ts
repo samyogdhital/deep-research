@@ -50,8 +50,9 @@ export interface DBSchema {
                 }>;
             }>;
         };
-        report?: {
+        report: {
             title: string;
+            status: "no-start" | "in-progress" | "completed";
             sections: Array<{
                 rank: number;
                 sectionHeading: string;
@@ -128,6 +129,14 @@ class ResearchDB {
             serpQueries: [],
             information_crunching_agent: {
                 serpQueries: []
+            },
+            report: {
+                title: '',
+                sections: [],
+                citedUrls: [],
+                status: 'no-start' as const,
+                isVisited: false,
+                timestamp: Date.now()
             }
         };
 

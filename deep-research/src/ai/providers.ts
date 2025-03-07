@@ -49,6 +49,7 @@ class GeminiProvider implements AIProvider {
 
   async generateObject(params: GenerateObjectParams): Promise<GenerateContentResult> {
     const apiKey = await this.getNextAvailableKey();
+    console.log(`🔃🔃 Using API key: ${apiKey}`);
     const genAI = new GoogleGenerativeAI(apiKey);
 
     try {
@@ -83,6 +84,7 @@ class GeminiProvider implements AIProvider {
 
       return await model.generateContent(params.prompt);
     } catch (error: any) {
+      console.log('🔴🔴 Gemini error:', error);
       if (error.message?.includes('429')) {
         this.rateLimitCooldown.set(apiKey, Date.now() + 60000);
         return this.generateObject(params);

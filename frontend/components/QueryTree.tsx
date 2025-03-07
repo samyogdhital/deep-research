@@ -3,6 +3,9 @@ import type { SerpQuery } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
 import { Sheet } from '@/components/ui/sheet';
 import { QuerySheet } from '@/components/QuerySheet';
+import { BsCircle, BsCheckCircleFill } from 'react-icons/bs';
+import { CgSpinner } from 'react-icons/cg';
+import { DBSchema } from '@deep-research/db';
 
 interface QueryNode {
   id: number;
@@ -20,6 +23,7 @@ interface QueryTreeProps {
   onQueryClick: (query: SerpQuery, e: React.MouseEvent) => void;
   onQueryClickEnd: (query: SerpQuery, e: React.MouseEvent) => void;
   isInteractionDisabled?: boolean;
+  reportStatus?: DBSchema['researches'][number]['report']['status'];
 }
 
 export function QueryTree({
@@ -27,12 +31,14 @@ export function QueryTree({
   onQueryClick,
   onQueryClickEnd,
   isInteractionDisabled = false,
+  reportStatus = 'no-start',
 }: QueryTreeProps) {
   // Constants for layout
   const NODE_WIDTH = 200;
   const NODE_HEIGHT = 50;
   const LEVEL_HEIGHT = 170;
   const SVG_PADDING = 50;
+  const REPORT_NODE_MARGIN = 100; // Added margin for report node
   const MIN_NODE_SPACING = 70;
 
   // Helper function to truncate query text
@@ -129,11 +135,11 @@ export function QueryTree({
     const distance = endPoint.y - startPoint.y;
     const controlPoint1 = {
       x: startPoint.x,
-      y: startPoint.y + distance * 0.2, // 20% of the distance
+      y: startPoint.y + distance * 0.4, // Increased from 0.2 to 0.4 for smoother curve
     };
     const controlPoint2 = {
       x: endPoint.x,
-      y: endPoint.y - distance * 0.2, // 20% from the end
+      y: endPoint.y - distance * 0.4, // Increased from 0.2 to 0.4 for smoother curve
     };
 
     return `M ${startPoint.x} ${startPoint.y}
@@ -142,11 +148,47 @@ export function QueryTree({
               ${endPoint.x} ${endPoint.y}`;
   };
 
+  // Get max depth to position report node
+  const reportNodeY =
+    (maxDepth + 1) * LEVEL_HEIGHT + SVG_PADDING + REPORT_NODE_MARGIN;
+
+  // Get report node status info
+  const getReportNodeInfo = () => {
+    switch (reportStatus) {
+      case 'in-progress':
+        return {
+          title: 'Generating Report...',
+          icon: <CgSpinner className='w-6 h-6 animate-spin' />,
+          className:
+            'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
+        };
+      case 'completed':
+        return {
+          title: 'Report Generated',
+          icon: <BsCheckCircleFill className='w-5 h-5' />,
+          className: 'bg-green-500 text-white',
+        };
+      default:
+        return {
+          title: 'Report',
+          icon: null,
+          className: 'bg-gray-200 dark:bg-gray-700 text-gray-500',
+        };
+    }
+  };
+
+  const reportInfo = getReportNodeInfo();
+
+  // Get leaf nodes (nodes without children)
+  const leafNodes = nodes.filter(
+    (node) => !nodes.some((n) => n.parentTimestamp === node.timestamp)
+  );
+
   return (
     <div className='w-full h-full flex items-center justify-center'>
       <svg
         width={svgWidth}
-        height={svgHeight}
+        height={svgHeight + NODE_HEIGHT + REPORT_NODE_MARGIN * 2}
         className='overflow-visible'
         style={{ pointerEvents: isInteractionDisabled ? 'none' : 'auto' }}
       >
@@ -216,6 +258,55 @@ export function QueryTree({
                 </button>
               </foreignObject>
             </g>
+          );
+        })}
+
+        {/* Report Node */}
+        <g
+          transform={`translate(${
+            svgWidth / 2 - NODE_WIDTH / 2
+          }, ${reportNodeY})`}
+        >
+          <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
+            <div
+              className={cn(
+                'w-full h-full rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 px-3',
+                reportInfo.className,
+                reportStatus === 'completed' &&
+                  'cursor-pointer hover:opacity-90'
+              )}
+              onClick={() => {
+                if (reportStatus === 'completed') {
+                  const reportId = window.location.pathname.split('/').pop();
+                  window.location.href = `/report/${reportId}`;
+                }
+              }}
+            >
+              {reportInfo.icon}
+              <span>{reportInfo.title}</span>
+            </div>
+          </foreignObject>
+        </g>
+
+        {/* Connections to Report Node */}
+        {leafNodes.map((leafNode) => {
+          const leafPos = getNodePosition(leafNode);
+          const reportX = svgWidth / 2;
+
+          // Calculate midpoint Y for smoother curve
+          const midY = leafPos.y + (reportNodeY - leafPos.y) * 0.5;
+
+          return (
+            <path
+              key={`report-connection-${leafNode.timestamp}`}
+              d={`M ${leafPos.x} ${leafPos.y + NODE_HEIGHT} 
+                  C ${leafPos.x} ${midY},
+                    ${reportX} ${midY},
+                    ${reportX} ${reportNodeY}`}
+              stroke='rgb(249 115 22 / 0.2)'
+              strokeWidth={4}
+              fill='none'
+            />
           );
         })}
       </svg>

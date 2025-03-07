@@ -75,6 +75,7 @@ const final_database_schema = {
     },
     report: {
         title: "Report title",
+        status: "no-start" | "in-progress" | "completed", // This will be the status of the report. If it's no-start then it means that the report is not started yet. If it's in-progress then it means that the report is in progress. If it's completed then it means that the report is completed.
         sections: [
             {
                 rank: "Section rank, at which rank show we show this section? This is also the identifyer of this particular section ok?",

@@ -41,8 +41,9 @@ export interface Report {
     title: string;
     sections: ReportSection[];
     citedUrls: CitedUrl[];
+    status: 'no-start' | 'in-progress' | 'completed';
     isVisited: boolean;
-    timestamp: number;
+    timestamp?: number;
 }
 
 export interface ResearchData {

@@ -18,10 +18,16 @@ export function OngoingResearchClient() {
       setActiveResearchIds(researchIds);
     });
 
+    // Listen for report completion and refresh sidebar
+    socket.on('report_writing_successfull', () => {
+      // Refresh the sidebar to show new report
+      router.refresh();
+    });
+
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [router]);
 
   if (activeResearchIds.length === 0) return null;
 

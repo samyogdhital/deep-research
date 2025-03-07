@@ -164,19 +164,31 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             research.status = 'generating';
             await wsManager.handleReportWritingStart(report_id);
 
+            // Set initial report status to in-progress
+            await db.saveReport({
+                report_id,
+                title: '',
+                sections: [],
+                citedUrls: [],
+                isVisited: false,
+                timestamp: Date.now(),
+                status: 'in-progress'
+            });
+
             const reportWriter = new ReportWriter();
             const report = await reportWriter.generateReport({
                 db_research_data: freshResearchData
             });
 
-            // Save report
+            // Save completed report
             await db.saveReport({
                 report_id,
                 title: report.title,
                 sections: report.sections,
                 citedUrls: report.citedUrls,
                 isVisited: false,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                status: 'completed'
             });
 
             // Update research status and notify frontend
