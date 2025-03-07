@@ -18,6 +18,7 @@ type WebSocketPayload = DBSchema['researches'][number]
 
 export class WebSocketManager {
     private io: Server;
+    private activeResearchIds: Set<string> = new Set();
 
     constructor(httpServer: ReturnType<typeof createServer>, frontendUrl: string) {
         this.io = new Server(httpServer, {
@@ -29,6 +30,8 @@ export class WebSocketManager {
 
         this.io.on('connection', (socket) => {
             console.log('Client connected');
+            // Send current active researches to new client
+            socket.emit('active_researches', Array.from(this.activeResearchIds));
             socket.on('disconnect', () => {
                 console.log('Client disconnected');
             });
@@ -68,7 +71,10 @@ export class WebSocketManager {
     }
 
     async handleResearchStart(research: ResearchState): Promise<void> {
+        this.activeResearchIds.add(research.id);
         await this.emitEvent('research_start', research.id);
+        // Broadcast updated active research list
+        this.io.emit('active_researches', Array.from(this.activeResearchIds));
     }
 
     // Information Gathering Process Events
@@ -107,11 +113,19 @@ export class WebSocketManager {
     }
 
     async handleReportWritingComplete(report_id: string): Promise<void> {
+        this.activeResearchIds.delete(report_id);
         await this.emitEvent('report_writing_successfull', report_id);
+        // Broadcast updated active research list
+        this.io.emit('active_researches', Array.from(this.activeResearchIds));
     }
 
     // Error Handling - Special case, doesn't send research data
     async handleResearchError(error: Error): Promise<void> {
+        // If the error contains a report_id, remove it from active researches
+        if ('report_id' in error && typeof error.report_id === 'string') {
+            this.activeResearchIds.delete(error.report_id);
+            this.io.emit('active_researches', Array.from(this.activeResearchIds));
+        }
         this.io.emit('research_error', { error: error.message });
     }
 }
