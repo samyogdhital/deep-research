@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 import { TbSend2 } from 'react-icons/tb';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -31,7 +30,7 @@ interface ResearchState {
 export default function Home() {
   const [state, setState] = useState<ResearchState>({
     step: 'input',
-    initialPrompt: 'space based datacenter.',
+    initialPrompt: '',
     depth: 2,
     breadth: 2,
     followUps_num: 1,
@@ -39,33 +38,21 @@ export default function Home() {
     isResearchInProgress: false,
   });
 
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [activeInput, setActiveInput] = useState<
+    'depth' | 'breadth' | 'followUps' | null
+  >(null);
+  const [inputValue, setInputValue] = useState('');
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Remove unused state
-  const [showDepthInput, setShowDepthInput] = useState(false);
-  const [showBreadthInput, setShowBreadthInput] = useState(false);
-  const [showFollowUpsInput, setShowFollowUpsInput] = useState(false);
-
+  const firstFollowUpRef = useRef<HTMLTextAreaElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Initialize socket connection
+  // Add auto-focus on mount
   useEffect(() => {
-    const socket = io(`${process.env.NEXT_PUBLIC_API_BASE_URL}`, {
-      withCredentials: true,
-      transports: ['websocket'],
-    });
-
-    socket.on('connect', () => {
-      console.log('Connected to websocket');
-    });
-
-    setSocket(socket);
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, []); // Empty dependency array means this runs once on mount
 
   // Modified auto-resize handler
   const handleTextareaResize = useCallback(() => {
@@ -84,71 +71,54 @@ export default function Home() {
     }
   }, [state.initialPrompt]);
 
-  // Update input handlers
-  const handleDepthChange = (value: string) => {
-    const depth = parseInt(value);
-    if (!isNaN(depth) && depth >= 1 && depth <= 10) {
-      setState((prev) => ({ ...prev, depth }));
-    }
-  };
-
-  const handleBreadthChange = (value: string) => {
-    const breadth = parseInt(value);
-    if (!isNaN(breadth) && breadth >= 1 && breadth <= 10) {
-      setState((prev) => ({ ...prev, breadth }));
-    }
-  };
-
-  const handleFollowUpsChange = (value: string) => {
-    const followUps = parseInt(value);
-    if (!isNaN(followUps) && followUps >= 1 && followUps <= 10) {
-      setState((prev) => ({ ...prev, followUps_num: followUps }));
-    }
-  };
-
-  // Add click outside handler
+  // Click outside handler
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (!target.closest('.depth-input') && !target.closest('.depth-button')) {
-        setShowDepthInput(false);
-      }
       if (
-        !target.closest('.breadth-input') &&
-        !target.closest('.breadth-button')
+        !target.closest('.input-popup') &&
+        !target.closest('.trigger-button')
       ) {
-        setShowBreadthInput(false);
-      }
-
-      if (
-        !target.closest('.followups-input') &&
-        !target.closest('.followups-button')
-      ) {
-        setShowFollowUpsInput(false);
+        if (activeInput) {
+          const value = inputValue.trim() ? Number(inputValue) : 1;
+          if (activeInput === 'followUps') {
+            setState((prev) => ({ ...prev, followUps_num: value }));
+          } else {
+            setState((prev) => ({ ...prev, [activeInput]: value }));
+          }
+          setActiveInput(null);
+        }
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [activeInput, inputValue]);
 
-  // Handle parameter button clicks
-  const handleDepthClick = () => {
-    setShowDepthInput(!showDepthInput);
-    setShowBreadthInput(false);
-    setShowFollowUpsInput(false);
+  const handleInputClick = (type: 'depth' | 'breadth' | 'followUps') => {
+    const currentValue =
+      type === 'followUps' ? state.followUps_num : state[type];
+    setInputValue(currentValue.toString());
+    setActiveInput(type);
   };
 
-  const handleBreadthClick = () => {
-    setShowBreadthInput(!showBreadthInput);
-    setShowDepthInput(false);
-    setShowFollowUpsInput(false);
+  const handleInputChange = (value: string) => {
+    const max = activeInput === 'followUps' ? 30 : 10;
+    if (value === '' || (Number(value) >= 1 && Number(value) <= max)) {
+      setInputValue(value);
+    }
   };
 
-  const handleFollowUpsClick = () => {
-    setShowFollowUpsInput(!showFollowUpsInput);
-    setShowDepthInput(false);
-    setShowBreadthInput(false);
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && activeInput) {
+      const value = inputValue.trim() ? Number(inputValue) : 1;
+      if (activeInput === 'followUps') {
+        setState((prev) => ({ ...prev, followUps_num: value }));
+      } else {
+        setState((prev) => ({ ...prev, [activeInput]: value }));
+      }
+      setActiveInput(null);
+    }
   };
 
   const handleInitialSubmit = async () => {
@@ -258,6 +228,13 @@ export default function Home() {
     }));
   };
 
+  // Focus on first follow-up textarea when questions load
+  useEffect(() => {
+    if (state.step === 'follow-up' && firstFollowUpRef.current) {
+      firstFollowUpRef.current.focus();
+    }
+  }, [state.step]);
+
   return (
     <main className='container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col'>
       {/* Show error message if exists */}
@@ -290,6 +267,17 @@ export default function Home() {
                   }));
                   handleTextareaResize();
                 }}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === 'Enter' &&
+                    (e.ctrlKey || e.metaKey) &&
+                    state.initialPrompt &&
+                    !isSubmitting
+                  ) {
+                    e.preventDefault();
+                    handleInitialSubmit();
+                  }
+                }}
               />
             </div>
 
@@ -301,13 +289,13 @@ export default function Home() {
                     <Button
                       title='Research Depth'
                       variant='outline'
-                      onClick={handleDepthClick}
-                      className='depth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
+                      onClick={() => handleInputClick('depth')}
+                      className='trigger-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
-                      Depth: {state.depth || 1}
+                      Depth: {state.depth}
                     </Button>
-                    {showDepthInput && (
-                      <div className='depth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
+                    {activeInput === 'depth' && (
+                      <div className='input-popup absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
                         <label className='block text-sm font-semibold mb-2 dark:text-white'>
                           Select Depth (1-10)
                         </label>
@@ -316,8 +304,9 @@ export default function Home() {
                           min={1}
                           max={10}
                           className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                          value={state.depth}
-                          onChange={(e) => handleDepthChange(e.target.value)}
+                          value={inputValue}
+                          onChange={(e) => handleInputChange(e.target.value)}
+                          onKeyDown={handleInputKeyDown}
                         />
                       </div>
                     )}
@@ -327,13 +316,13 @@ export default function Home() {
                     <Button
                       title='Research Breadth'
                       variant='outline'
-                      onClick={handleBreadthClick}
-                      className='breadth-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
+                      onClick={() => handleInputClick('breadth')}
+                      className='trigger-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
-                      Breadth: {state.breadth || 1}
+                      Breadth: {state.breadth}
                     </Button>
-                    {showBreadthInput && (
-                      <div className='breadth-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
+                    {activeInput === 'breadth' && (
+                      <div className='input-popup absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
                         <label className='block text-sm font-semibold mb-2 dark:text-white'>
                           Select Breadth (1-10)
                         </label>
@@ -342,8 +331,9 @@ export default function Home() {
                           min={1}
                           max={10}
                           className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                          value={state.breadth}
-                          onChange={(e) => handleBreadthChange(e.target.value)}
+                          value={inputValue}
+                          onChange={(e) => handleInputChange(e.target.value)}
+                          onKeyDown={handleInputKeyDown}
                         />
                       </div>
                     )}
@@ -353,25 +343,26 @@ export default function Home() {
                     <Button
                       title='Follow Up Questions'
                       variant='outline'
-                      onClick={handleFollowUpsClick}
-                      className='followups-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
+                      onClick={() => handleInputClick('followUps')}
+                      className='trigger-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600'
                     >
-                      Follow Ups: {state.followUps_num || 5}
+                      Follow Ups: {state.followUps_num}
                     </Button>
-                    {showFollowUpsInput && (
-                      <div className='followups-input absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
+                    {activeInput === 'followUps' && (
+                      <div className='input-popup absolute top-full mt-2 left-0 bg-white dark:bg-[#161818] p-3 rounded-lg shadow-lg border dark:border-gray-700 min-w-[180px] z-10'>
                         <label className='block text-sm font-semibold mb-2 dark:text-white'>
-                          Select Follow Ups (1-10)
+                          Select Follow Ups
+                          <br />
+                          (1-30)
                         </label>
                         <input
                           type='number'
                           min={1}
-                          max={10}
+                          max={30}
                           className='w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                          value={state.followUps_num}
-                          onChange={(e) =>
-                            handleFollowUpsChange(e.target.value)
-                          }
+                          value={inputValue}
+                          onChange={(e) => handleInputChange(e.target.value)}
+                          onKeyDown={handleInputKeyDown}
                         />
                       </div>
                     )}
@@ -438,7 +429,8 @@ export default function Home() {
                             dark:focus:ring-[#007e81] dark:focus:ring-offset-[#202121]
                             transition-all duration-200
                             resize-none overflow-y-auto min-h-[120px] max-h-[400px]'
-                        value={qa.answer || 'all'}
+                        value={qa.answer}
+                        ref={qa.id === 1 ? firstFollowUpRef : undefined}
                         onChange={(e) => {
                           handleAnswerChange(qa.id, e.target.value);
                           // Auto-expand logic

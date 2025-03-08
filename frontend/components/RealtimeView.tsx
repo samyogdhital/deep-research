@@ -37,6 +37,9 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
   });
   const [selectedQuery, setSelectedQuery] = useState<SerpQuery | null>(null);
   const [researchData, setResearchData] = useState<ResearchData>(initialData);
+  const [reportStatus, setReportStatus] = useState<
+    'no-start' | 'in-progress' | 'completed' | 'failed'
+  >(initialData.report?.status || 'no-start');
 
   // Core state
   const [isDragging, setIsDragging] = useState(false);
@@ -208,37 +211,24 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     };
 
     socket.on('connect', () => console.log('Connected to websocket'));
-    socket.on('new_serp_query', handleData);
-    socket.on('scraping_a_website', handleData);
-    socket.on('analyzing_a_website', handleData);
-    socket.on('analyzed_a_website', handleData);
 
-    // Specific handlers for report status changes
-    socket.on('report_writing_start', (data: ResearchData) => {
-      if (!data.report) return;
-      setResearchData({
-        ...data,
-        report: {
-          ...data.report,
-          status: 'in-progress',
-        },
-      });
-      updateNodesWithData(data.serpQueries);
-    });
+    // Group data update events
+    [
+      'new_serp_query',
+      'scraping_a_website',
+      'analyzing_a_website',
+      'analyzed_a_website',
+    ].forEach((event) => socket.on(event, handleData));
+
+    // Report status handlers
+    socket.on('report_writing_start', () => setReportStatus('in-progress'));
 
     socket.on('report_writing_successfull', (data: ResearchData) => {
-      if (!data.report) return;
-      setResearchData({
-        ...data,
-        report: {
-          ...data.report,
-          status: 'completed',
-        },
-      });
-      updateNodesWithData(data.serpQueries);
-
+      setReportStatus('completed');
       window.location.href = `/report/${data.report_id}`;
     });
+
+    socket.on('research_error', () => setReportStatus('failed'));
 
     setSocket(socket);
     return () => {
@@ -247,15 +237,13 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
   }, []);
 
   const updateNodesWithData = useCallback((queries: SerpQuery[]) => {
-    setQueryNodes((prev) => {
-      const updated = [...prev];
-      queries.forEach((query, index) => {
-        if (updated[index]) {
-          updated[index] = { ...updated[index], data: query, isEnabled: true };
-        }
-      });
-      return updated;
-    });
+    setQueryNodes((prev) =>
+      prev.map((node, index) =>
+        queries[index]
+          ? { ...node, data: queries[index], isEnabled: true }
+          : node
+      )
+    );
   }, []);
 
   return (
@@ -293,8 +281,8 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
           nodes={queryNodes}
           onQueryClick={handleQueryClick}
           onQueryClickEnd={handleQueryClickEnd}
-          isInteractionDisabled={false}
-          reportStatus={researchData.report?.status || 'no-start'}
+          isInteractionDisabled={!!selectedQuery}
+          reportStatus={reportStatus}
         />
       </div>
 

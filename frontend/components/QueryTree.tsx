@@ -23,7 +23,7 @@ interface QueryTreeProps {
   onQueryClick: (query: SerpQuery, e: React.MouseEvent) => void;
   onQueryClickEnd: (query: SerpQuery, e: React.MouseEvent) => void;
   isInteractionDisabled?: boolean;
-  reportStatus?: DBSchema['researches'][number]['report']['status'];
+  reportStatus?: 'no-start' | 'in-progress' | 'completed' | 'failed';
 }
 
 export function QueryTree({
@@ -157,22 +157,31 @@ export function QueryTree({
     switch (reportStatus) {
       case 'in-progress':
         return {
-          title: 'Generating Report...',
+          title: 'Writing Report...',
           icon: <CgSpinner className='w-6 h-6 animate-spin' />,
           className:
-            'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
+            'bg-orange-500 text-white cursor-wait transition-all duration-300',
         };
       case 'completed':
         return {
           title: 'Report Generated',
           icon: <BsCheckCircleFill className='w-5 h-5' />,
-          className: 'bg-green-500 text-white',
+          className:
+            'bg-green-500 text-white cursor-pointer hover:bg-green-600 transition-all duration-300',
+        };
+      case 'failed':
+        return {
+          title: 'Report Failed',
+          icon: <BsCircle className='w-5 h-5' />,
+          className:
+            'bg-red-500 text-white cursor-not-allowed transition-all duration-300',
         };
       default:
         return {
           title: 'Report',
           icon: null,
-          className: 'bg-gray-200 dark:bg-gray-700 text-gray-500',
+          className:
+            'bg-gray-200 dark:bg-gray-700 text-gray-500 cursor-not-allowed transition-all duration-300',
         };
     }
   };
@@ -249,7 +258,7 @@ export function QueryTree({
                       ? isInteractionDisabled
                         ? 'bg-orange-400 text-white cursor-default'
                         : 'bg-orange-500 text-white hover:bg-orange-600 cursor-pointer'
-                      : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                   )}
                 >
                   {node.data

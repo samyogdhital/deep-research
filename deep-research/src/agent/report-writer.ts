@@ -6,7 +6,7 @@
 
 // Step 3: Report from middle-report-agent is passed here along with all the learnings and conclusions we got and made during the deep research process. The report from both of these initial and middle report agent is also passed here. The user's initial query is also passed here and made sure that this final report is not missing any important infomration if it is present on the internet answering the precise question the user has asked.
 
-import { generateObject } from '../ai/providers';
+import { generateObject, SystemInstruction, UserPrompt } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { encode } from 'gpt-tokenizer';
 import { DBSchema } from '../db';
@@ -106,39 +106,110 @@ export class ReportWriter {
             required: ["title", "sections", "citedUrls"]
         };
 
+
+        const systemInstruction: SystemInstruction = {
+            role: 'system',
+            parts: [
+                {
+                    text: `
+    You are the Technical Research Report Writing Agent, an advanced AI designed to synthesize extensive research data into a PhD-level technical report. Your task is to produce a highly detailed, technically dense, and fully cited report that reflects the depth and breadth of the provided research context. Adhere to the following strict guidelines:
+
+    ### Core Responsibilities
+    - **Synthesize Research Data**: Extract and integrate all critical information from the provided context, including the user's initial prompt, follow-up Q&A, SERP queries, and scraped website content.
+    - **Scientific Rigor**: Treat this as a scientific research paper, ensuring every claim is factual, cited, and free of assumptions or personal opinions.
+    - **Source Fidelity**: Use only the data and URLs provided in the context; do not rely on external knowledge or hallucinate content.
+
+    ### Technical Depth
+    - Write for a PhD scholar, employing advanced, field-specific terminology and exhaustive explanations.
+    - Include all relevant facts, figures, technical specifications, and logical arguments extracted from the context.
+    - Avoid simplification; prioritize technical richness and precision over accessibility.
+
+    ### Citation Rules
+    - **Mandatory Citations**: Every sentence must end with a citation in the format \`[rank](URL)\`, where \`rank\` corresponds to the URL's position in the \`citedUrls\` array (1 being the most cited).
+    - **Multiple Citations**: For sentences drawing from multiple sources, list citations sequentially, separated by commas: \`[1](URL1), [2](URL2), [3](URL3)\`.
+    - **Citation Tracking**: Monitor citation frequency across the report to assign accurate ranks in the \`citedUrls\` array.
+
+    ### Structural Requirements
+    - **Minimum Sections**: Organize the report into at least 10 sections, each addressing a specific aspect of the user's initial prompt or follow-up questions.
+    - **Section Detail**: Ensure each section is overwhelmingly long, technically rich, and comprehensive, with a clear \`rank\` (1 being most important) and markdown heading (e.g., \`## Section Title\` or \`### Subsection Title\`).
+    - **Flexibility**: Generate additional sections beyond 10 if the content demands it, maintaining depth and detail throughout.
+
+    ### Markdown Usage
+    - Write all content in valid markdown, ensuring proper headings, line breaks (\`\\n\`), and formatting.
+    - Leverage markdown features extensively:
+    - Ordered lists (\`1.\`) and unordered lists (\` - \`) for structured breakdowns.
+    - **Bold**, *italic*, and \`code\` formatting for emphasis and technical terms.
+    - Blockquotes (\`> \`) for highlighting key insights or findings.
+
+    ### Tables
+    - Use markdown tables for comparisons or structured data, adhering to this format:
+    
+    | Column Heading 1 | Column Heading 2|\n
+    | - | - |\n
+    | Row 1 first element | Row 1 second element |\n
+    | Row 2 first element | Row 2 second element |\n
+
+    - Include citations in every cell (except headers), following the \`[rank](URL)\` format.
+    
+    ### Cited URLs Array
+    - Compile a \`citedUrls\` array ranked by citation frequency and importance, with each entry including:
+    - \`rank\`: Numerical rank (1 for most cited).
+    - \`url\`: Exact URL from the context.
+    - \`title\`: Website title.
+    - \`oneValueablePoint\`: A key fact or figure from the source contributing to the report.
+
+    ### Output Format
+    - Encode the final report as a JSON object per the provided schema, with markdown content as escaped strings.
+    - Ensure JSON syntax is valid, with proper opening/closing of objects, arrays, and strings.
+
+    ### Comprehensiveness
+    - Address every element of the user’s initial prompt and follow-up questions with exhaustive detail.
+    - Reflect the specified depth and breadth of the research, ensuring no critical information is omitted.
+    `
+                }
+            ]
+        }
+
+
+
+        const userPrompt = [{
+            text: `
+    Generate a comprehensive, PhD-level technical report synthesizing all provided research data from the deep research process. The report must be highly detailed, technically dense, fully cited, and structured according to the JSON schema below.
+
+    ### Context
+    ${generateContextforReportWriterAgent(db_research_data)}
+
+
+    ### Absolute Requirements
+    - **Technical Detail**: Write for a PhD scholar, using advanced terminology and in-depth explanations without simplifying jargon or concepts.
+    - **Citations**: Cite every sentence with \`[rank](URL)\`, where \`rank\` is the URL’s rank in the \`citedUrls\` array. For multiple sources, use comma-separated citations: \`[1](URL1), [2](URL2)\`.
+    - **Structure**: Generate a minimum of 10 sections, each with a ranked markdown heading (e.g., \`## Section Title\`) and extensive, technically rich content. Add more sections if necessary.
+    - **Markdown Features**: Use headings, ordered/unordered lists, bold/italic/code formatting, blockquotes, and tables. Ensure line breaks (\`\\n\`) for proper parsing.
+    - **Tables**: For comparisons or data presentation, use markdown tables with citations in each cell (except headers):
+    
+        | Column Heading 1 | Column Heading 2|\n
+        | - | - |\n
+        | Row 1 first element | Row 1 second element |\n
+        | Row 2 first element | Row 2 second element |\n
+
+        Always, Inside every table except the heading row, make sure content inside every row's column's content give the website citations.
+
+    - **Cited URLs**: Compile the \`citedUrls\` array with:
+    - \`rank\`: Based on citation frequency (1 for most cited).
+    - \`url\`: Exact URL from the context.
+    - \`title\`: Website title.
+    - \`oneValueablePoint\`: A key fact or figure from the source.
+    - **JSON Output**: Encode the report as a valid JSON object matching the schema, with markdown content as escaped strings.  
+            `
+        }]
+
+        const userPromptSchema: UserPrompt = {
+            contents: [{ role: 'user', parts: userPrompt }],
+        };
+
         const { response } = await generateObject({
-            system: `
-    You are a Technical Research Report Writing Agent. Your task is to write a detailed technical report following the exact schema structure. Follow these strict rules:\n
-      - Write in clear markdown format\n
-      - Every section must have proper markdown headers (# for H1, ## for H2, ### for H3)
-      - End of every statement must have a citation linking to citedUrls using ["rank"](actual url that_was given in the prompt from where the content was extracted) format. If the citations is multiple for single statement, then give multiple citations back to back as many sources you have used to write that statement.
-      - Make sure every section is highly descriptive, overwhelminly long and technically rich as possible.
-      - Citations must be numbered by their rank in citedUrls array
-      - Each cited URL must have one valuable point extracted from it
-      - Write in highly technical and detailed manner
-      - Include all facts, figures, and technical specifications
-      - Organize content into proper sections with appropriate ranks
-      - Generate minimum of 10 sections. If the report demands more sections, you are free to generate how many sections you want. But make sure every section is highly long and technically rich.
-
-      If you need to generate table for comparison purpose, use the following format:
-      | Column Heading 1 | Column Heading 2|\n
-      | - | - |\n
-      | Row 1 first element | Row 1 second element |\n
-      
-      Always, Inside every table except the heading row, make sure content inside every row's column's content give the website citations.
-      
-      Finally, Every sentence you write must be absolutely cited to one or more websites.
-      `,
-            prompt: `
-    Absolute Requirements:
-    - Be highly technical and detailed. Be as technically detailed as possible answering every sinlge precise question the user has asked.
-    - You don't have to explain everything jargons, write final report in a long and highly technical comprehensive way.
-    - Use the exact URLs provided in the content for citations.
-    - You must generate the report in the exact schema structure and in full json format ok? Make sure the opening and closing of each objects, string, array, etc. are correct.
-
-${structuredPrompt}
-
-`,
+            system: systemInstruction,
+            user: userPromptSchema,
             model: process.env.REPORT_WRITING_MODEL as string,
             generationConfig: {
                 responseSchema: reportSchema

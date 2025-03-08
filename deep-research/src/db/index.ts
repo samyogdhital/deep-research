@@ -200,7 +200,7 @@ class ResearchDB {
     async getAllReports(): Promise<Array<{ report_id: string; report: any }>> {
         await this.db.read();
         return this.db.data.researches
-            .filter(r => r.report)
+            // .filter(r => r.report)
             .map(r => ({
                 report_id: r.report_id,
                 report: r.report

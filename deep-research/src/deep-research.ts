@@ -38,18 +38,15 @@ async function deepResearch(researchId: string, wsManager: WebSocketManager) {
     await wsManager.handleNewSerpQuery(researchId);
   }
 
-  // Step 3. Process each query in parallel using queue
-  const queue = new PQueue({ concurrency: breadth });
-
   // Step 4. Initialize searxng, firecrawl and websiteAnalyzer.
   const searxng = new SearxNG();
   const firecrawl = new Firecrawl();
   const websiteAnalyzer = new WebsiteAnalyzer();
 
-  // Step 4. Process each query in parallel using queue
+  // Process each query in parallel using native promises
   const processPromises = initialSerpQueries.map((serpQuery) =>
-    queue.add(async (): Promise<WebsiteAnalysis[]> => {
-      const processQueryAtDepth = async (serpQuery: QueryWithObjective, currentDepth: number): Promise<WebsiteAnalysis[]> => {
+    (async (): Promise<WebsiteAnalysis[]> => {
+      const processQueryAtDepth = async (serpQuery: QueryWithObjective, currentDepth: number, parentBreadth: number): Promise<WebsiteAnalysis[]> => {
         try {
           // Step 1. SearxNG this query.
           const searchResults: DBSchema['researches'][number]['serpQueries'][number]['successful_scraped_websites'] = (await searxng.search(serpQuery.query)).map((result, index) => ({
@@ -144,11 +141,11 @@ async function deepResearch(researchId: string, wsManager: WebSocketManager) {
           if (currentDepth < depth) {
 
             // Generate child queries based on the current query's findings
-            const numChildren = Math.ceil(breadth / 2);
+            const current_depth_breadth_query = currentDepth === 1 ? breadth : Math.ceil(parentBreadth / 2);
             const childQueries = await generateQueriesWithObjectives(
               researchData,
               currentDepth + 1,
-              numChildren,
+              current_depth_breadth_query,
               serpQuery.query_timestamp // Pass parent query ID or reference
             );
 
@@ -244,10 +241,7 @@ async function deepResearch(researchId: string, wsManager: WebSocketManager) {
 
               // Process next depth level if needed
               if (currentDepth + 1 < depth) {
-                const nextDepthResults = await queue.add(async () => {
-                  const results = await processQueryAtDepth(childQuery as QueryWithObjective, currentDepth + 1);
-                  return results;
-                });
+                const nextDepthResults = await processQueryAtDepth(childQuery as QueryWithObjective, currentDepth + 1, current_depth_breadth_query);
                 return [...childAnalyses, ...(nextDepthResults || [])];
               }
 
@@ -263,16 +257,14 @@ async function deepResearch(researchId: string, wsManager: WebSocketManager) {
           }
 
           return allScrapedContents;
-
-          // Step 4. We save all the analysis on database and consider new layer of query.
         } catch (error) {
           console.error(`Error processing query "${serpQuery.query}":`, error);
           return []; // Return empty array on failure
         }
       }
 
-      return processQueryAtDepth(serpQuery, 1);
-    })
+      return processQueryAtDepth(serpQuery, 1, breadth);
+    })()  // Immediately invoke the async function
   );
 
   const result = (await Promise.all(processPromises)).flat() as WebsiteAnalysis[];

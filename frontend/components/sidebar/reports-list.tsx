@@ -23,24 +23,22 @@ import { updateReportTitle } from '@/lib/db';
 import { deleteReportAction } from '@/lib/server-actions/reports';
 import { useResearchStore } from '@/lib/research-store';
 import type { ResearchData } from '@deep-research/db/schema';
+import { DBSchema } from '@deep-research/db';
 
 const truncate = (str: string | undefined | null): string => {
   if (!str) return 'Untitled Research';
   return str.length > 24 ? str.slice(0, 26) + '...' : str;
 };
 
-// UI-specific report type that matches our display needs
-type UIReport = {
-  report_id: string;
-  title: string;
-  timestamp: number;
-  isVisited: boolean;
-};
+// Use the exact type from DBSchema
+type Report = DBSchema['researches'][number];
+type UIReport = Required<Report['report']> & { report_id: string };
 
 interface CategoryReports {
   today: UIReport[];
   week: UIReport[];
   month: UIReport[];
+  failed: UIReport[];
 }
 
 export function ReportsList({
@@ -66,12 +64,18 @@ export function ReportsList({
   // Transform ResearchData to UIReport format
   const transformReports = (data: ResearchData[]): UIReport[] => {
     return data
-      .filter((r) => r.report) // Only include items with report
+      .filter(
+        (r): r is ResearchData & { report: NonNullable<Report['report']> } =>
+          !!r.report
+      )
       .map((r) => ({
         report_id: r.report_id,
-        title: r.report?.title || 'Untitled Research',
-        isVisited: r.report?.isVisited || false,
-        timestamp: r.report?.timestamp || Date.now(),
+        title: r.report.title,
+        status: r.report.status,
+        sections: r.report.sections,
+        citedUrls: r.report.citedUrls,
+        isVisited: r.report.isVisited,
+        timestamp: r.report.timestamp,
       }));
   };
 
@@ -83,39 +87,35 @@ export function ReportsList({
     const weekInMs = dayInMs * 7;
     const monthInMs = dayInMs * 30;
 
-    // First separate unread reports
+    // First separate unread and failed reports
     const unreadReports = reports.filter((r) => !r.isVisited);
-    const unreadIds = new Set(unreadReports.map((r) => r.report_id));
-
-    // Then categorize remaining (read) reports
-    // Only process reports that aren't unread
+    const failedReports = reports.filter((r) => r.status === 'failed');
     const readReports = reports.filter(
-      (r) => r.isVisited && !unreadIds.has(r.report_id)
+      (r) => r.isVisited && r.status !== 'failed'
     );
 
-    const categories = readReports.reduce(
-      (acc: CategoryReports & { unread: UIReport[] }, report) => {
-        const diff = now - report.timestamp;
+    // Sort function
+    const sortByTimestamp = (a: UIReport, b: UIReport) =>
+      b.timestamp - a.timestamp;
 
-        if (diff < dayInMs) {
-          acc.today.push(report);
-        } else if (diff < weekInMs) {
-          acc.week.push(report);
-        } else if (diff < monthInMs) {
-          acc.month.push(report);
-        }
+    // Categorize read reports
+    const today: UIReport[] = [];
+    const week: UIReport[] = [];
+    const month: UIReport[] = [];
 
-        return acc;
-      },
-      { today: [], week: [], month: [], unread: unreadReports }
-    );
+    readReports.forEach((report) => {
+      const diff = now - report.timestamp;
+      if (diff < dayInMs) today.push(report);
+      else if (diff < weekInMs) week.push(report);
+      else if (diff < monthInMs) month.push(report);
+    });
 
-    // Sort each category by newest first
     return {
-      unread: categories.unread.sort((a, b) => b.timestamp - a.timestamp),
-      today: categories.today.sort((a, b) => b.timestamp - a.timestamp),
-      week: categories.week.sort((a, b) => b.timestamp - a.timestamp),
-      month: categories.month.sort((a, b) => b.timestamp - a.timestamp),
+      unread: unreadReports.sort(sortByTimestamp),
+      failed: failedReports.sort(sortByTimestamp),
+      today: today.sort(sortByTimestamp),
+      week: week.sort(sortByTimestamp),
+      month: month.sort(sortByTimestamp),
     };
   };
 
@@ -189,8 +189,13 @@ export function ReportsList({
 
   const renderReportItem = (report: UIReport) => (
     <Link
+      title={report.title}
       key={report.report_id}
-      href={`/report/${report.report_id}`}
+      href={
+        report.title
+          ? `/report/${report.report_id}`
+          : `/realtime/${report.report_id}`
+      }
       className={`group block px-2 py-1.5 rounded transition-colors relative
                 ${
                   params.slug === report.report_id
@@ -300,6 +305,21 @@ export function ReportsList({
           </h3>
           <div className='space-y-1'>
             {categorizedReports.unread.map((report) =>
+              renderReportItem(report)
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Failed Section */}
+      {categorizedReports.failed.length > 0 && (
+        <section className='space-y-1'>
+          <h3 className='text-xs font-medium px-2 mb-2 flex items-center gap-1.5'>
+            <span className='w-1.5 h-1.5 rounded-full bg-red-300 dark:bg-red-800' />
+            <span className='text-red-400 dark:text-red-500'>Failed</span>
+          </h3>
+          <div className='space-y-1'>
+            {categorizedReports.failed.map((report) =>
               renderReportItem(report)
             )}
           </div>
