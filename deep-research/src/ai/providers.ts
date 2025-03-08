@@ -36,7 +36,7 @@ class GeminiProvider implements AIProvider {
       const cooldownUntil = this.rateLimitCooldown.get(key) || 0;
 
       if (cooldownUntil <= now) {
-        this.currentKeyIndex = nextIndex;
+        this.currentKeyIndex = (nextIndex + 1) % this.apiKeys.length;
         return key;
       }
     }

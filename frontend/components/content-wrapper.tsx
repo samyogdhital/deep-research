@@ -5,10 +5,14 @@ import { ResearchData } from '@deep-research/db/schema';
 
 export default function ContentWrapper({
   reports,
+  runningResearches,
+  theme,
   isExpanded: initialExpanded,
   children,
 }: {
   reports: ResearchData[];
+  runningResearches: string[];
+  theme: string;
   isExpanded: boolean;
   children: React.ReactNode;
 }) {
@@ -25,7 +29,9 @@ export default function ContentWrapper({
     <>
       <ClientSidebar
         reports={reports}
+        runningResearches={runningResearches}
         isExpanded={isExpanded}
+        theme={theme}
         onToggle={handleToggle}
       />
       <main

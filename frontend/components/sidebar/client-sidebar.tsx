@@ -6,8 +6,8 @@ import { Menu, PlusCircle } from 'lucide-react';
 import { SidebarFooter } from './sidebar-footer';
 import { ReportsList } from './reports-list';
 import { OngoingResearchClient } from './ongoing-research-client';
-import { ReportsType } from '../layout-wrapper';
 import { SidebarHeader } from './sidebar-header';
+import { ResearchData } from '@deep-research/db/schema';
 
 // Simple skeleton just for reports section
 function ReportsSkeleton() {
@@ -27,10 +27,14 @@ export function ClientSidebar({
   reports,
   isExpanded,
   onToggle,
+  runningResearches = [],
+  theme,
 }: {
-  reports: ReportsType;
+  reports: ResearchData[];
   isExpanded: boolean;
   onToggle: () => void;
+  runningResearches: string[];
+  theme: string;
 }) {
   return (
     <>
@@ -77,12 +81,15 @@ export function ClientSidebar({
           <OngoingResearchClient />
 
           <Suspense fallback={<ReportsSkeleton />}>
-            <ReportsList reports={reports} />
+            <ReportsList
+              reports={reports}
+              runningResearches={runningResearches}
+            />
           </Suspense>
         </div>
 
         {/* Static Footer */}
-        <SidebarFooter />
+        <SidebarFooter theme={theme} />
       </div>
     </>
   );

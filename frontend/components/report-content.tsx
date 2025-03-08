@@ -278,14 +278,14 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
                 onClick={() => (window.location.href = `/realtime/${reportId}`)}
                 className='text-[#007e81] hover:text-[#006669] dark:text-[#00a3a8] dark:hover:text-[#008589]'
               >
-                Realtime page
+                Tree view
               </Button>
             </div>
           </div>
         </div>
 
         {/* Report Sections */}
-        <div className='space-y-12'>
+        <div className='space-y-12 mb-12 border-b border-gray-200 dark:border-gray-700 pb-12'>
           {report.sections.map((section) => (
             <div
               key={section.rank}
@@ -302,155 +302,57 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
           ))}
         </div>
 
-        {/* Citations */}
+        {/* Sources Accordion */}
         <div className='mt-12'>
-          <h2 className='text-2xl font-semibold mb-4 text-gray-900 dark:text-gray-50'>
-            Sources
-          </h2>
-          <div className='space-y-4'>
-            {report.citedUrls.map((citation) => (
-              <div
-                key={citation.rank}
-                id={`citation-${citation.rank}`}
-                className='p-4 bg-gray-50 dark:bg-gray_800 rounded-lg shadow-sm transition-colors'
-                style={{
-                  scrollMarginTop: '2rem',
-                }}
-              >
-                <div className='flex items-start gap-3'>
-                  <span className='inline-flex items-center justify-center px-2 py-0.5 rounded bg-[#e5f5f5] dark:bg-[#002f30] text-[#007e81] dark:text-[#00a3a8] font-medium min-w-[2rem]'>
-                    [{citation.rank}]
-                  </span>
-                  <div className='flex-1'>
-                    <h3 className='font-medium text-gray-900 dark:text-gray-50'>
-                      {citation.title}
-                    </h3>
-                    <a
-                      href={citation.url}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      className='text-[#007e81] hover:text-[#006669] dark:text-[#00a3a8] dark:hover:text-[#008589] block mt-1 break-all'
-                    >
-                      {citation.url}
-                    </a>
-                    <p className='mt-2 text-sm text-gray-600 dark:text-gray-400'>
-                      {citation.oneValueablePoint}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Research Progress */}
-        <div className='mt-12'>
-          <h2 className='text-2xl font-semibold mb-4 text-gray-900 dark:text-gray-50'>
-            Research Details
-          </h2>
-
-          {/* SERP Queries */}
-          <div className='space-y-6'>
-            {researchData.serpQueries.map((query) => (
-              <div
-                key={query.query_timestamp}
-                className='p-4 bg-gray-50 dark:bg-bg_color rounded shadow-sm'
-              >
-                <h3 className='font-medium mb-2 text-gray-900 dark:text-gray-50'>
-                  Query {query.query_timestamp}: {query.query}
-                </h3>
-                <p className='text-sm text-gray-600 dark:text-gray-400 mb-4'>
-                  Objective: {query.objective}
-                </p>
-
-                {/* Successful Scrapes */}
-                <div className='space-y-2'>
-                  {query.successful_scraped_websites.map((website) => (
-                    <div
-                      key={website.url}
-                      className='p-2 bg-gray-50 dark:bg-bg_color rounded'
-                    >
-                      <a
-                        href={website.url}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='text-blue-500 hover:text-blue-600 dark:text-blue-400 font-inter'
+          <Accordion type='single' collapsible className='w-full'>
+            <AccordionItem
+              value='sources'
+              className='rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden'
+            >
+              <AccordionTrigger className='text-xl font-semibold text-gray-900 dark:text-gray-300 hover:no-underline px-4 py-3'>
+                Sources
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className='space-y-2 p-4'>
+                  {report.citedUrls
+                    .sort((a, b) => a.rank - b.rank)
+                    .map((citation) => (
+                      <div
+                        key={citation.rank}
+                        id={`citation-${citation.rank}`}
+                        className='p-3 flex items-start gap-3'
+                        style={{ scrollMarginTop: '2rem' }}
                       >
-                        {website.title}
-                      </a>
-                      <p className='text-sm text-gray-500 dark:text-gray-400 font-inter'>
-                        Relevance: {website.relevance_score}/10
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Failed Websites */}
-                {query.failedWebsites.length > 0 && (
-                  <div className='mt-4'>
-                    <p className='text-sm text-red-500 font-inter'>
-                      Failed to scrape:
-                    </p>
-                    <ul className='list-disc list-inside'>
-                      {query.failedWebsites.map((url, index) => (
-                        <li
-                          key={index}
-                          className='text-sm text-gray-500 font-inter'
-                        >
-                          {url.website}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Information Crunching Results */}
-          {researchData.information_crunching_agent.serpQueries.length > 0 && (
-            <div className='mt-8'>
-              <h3 className='text-xl font-semibold mb-4'>
-                Information Crunching Results
-              </h3>
-              <div className='space-y-4'>
-                {researchData.information_crunching_agent.serpQueries.map(
-                  (query) => (
-                    <div
-                      key={query.query_timestamp}
-                      className='p-4 bg-gray-50 dark:bg-bg_color rounded'
-                    >
-                      <h4 className='font-medium mb-2'>
-                        Query {query.query_timestamp} Results
-                      </h4>
-                      {query.crunched_information.map((info, index) => (
-                        <div key={index} className='mt-2'>
+                        <span className='inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-300 text-sm font-medium shrink-0'>
+                          {citation.rank}
+                        </span>
+                        <div className='flex-1 min-w-0'>
                           <a
-                            href={info.url}
+                            href={citation.url}
                             target='_blank'
                             rel='noopener noreferrer'
-                            className='text-blue-500 hover:text-blue-600 dark:text-blue-400'
+                            className='text-sm text-black hover:text-gray-600 dark:text-gray-300 dark:hover:text-gray-400 truncate block transition-colors'
                           >
-                            Source
+                            {citation.url}
                           </a>
-                          <div className='mt-1 space-y-1'>
-                            {info.content.map((content, i) => (
-                              <p
-                                key={i}
-                                className='text-sm text-gray-600 dark:text-gray-300'
-                              >
-                                {content}
-                              </p>
-                            ))}
+                          <p className='text-sm text-gray-700 dark:text-gray-400 mt-1 line-clamp-2'>
+                            {citation.oneValueablePoint}
+                          </p>
+                          <div className='flex items-center mt-1'>
+                            <div className='flex items-center text-xs text-gray-600 dark:text-gray-500 gap-1'>
+                              <span>Relevancy:</span>
+                              <span className='font-medium'>
+                                {citation.rank}/10
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          )}
+                      </div>
+                    ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
       </div>
       <style jsx global>{`

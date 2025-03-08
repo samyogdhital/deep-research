@@ -88,3 +88,14 @@ export async function markReportAsVisited(id: string) {
         return false;
     }
 }
+
+
+export async function getRunningResearches(): Promise<string[]> {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/running_researches`, {
+        next: { tags: ['running_researches'] }
+    });
+    if (!response.ok) throw new Error('Failed to fetch running researches');
+    return response.json();
+}
+
+

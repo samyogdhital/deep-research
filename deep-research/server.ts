@@ -165,8 +165,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             await wsManager.handleReportWritingStart(report_id);
 
             // Set initial report status to in-progress
-            await db.saveReport({
-                report_id,
+            await db.saveReport(report_id, {
                 title: '',
                 sections: [],
                 citedUrls: [],
@@ -177,12 +176,12 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
             const reportWriter = new ReportWriter();
             const report = await reportWriter.generateReport({
-                db_research_data: freshResearchData
+                db_research_data: freshResearchData,
+                wsManager: wsManager
             });
 
             // Save completed report
-            await db.saveReport({
-                report_id,
+            await db.saveReport(report_id, {
                 title: report.title,
                 sections: report.sections,
                 citedUrls: report.citedUrls,
@@ -202,7 +201,21 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             console.error('Error in research:', error);
             research.status = 'failed';
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            wsManager.handleResearchError(new Error(errorMessage));
+
+            // Set report status to failed in database
+            const db = await ResearchDB.getInstance();
+            await db.saveReport(report_id, {
+                title: '',
+                sections: [],
+                citedUrls: [],
+                isVisited: false,
+                timestamp: Date.now(),
+                status: 'failed'  // Only update the status
+            });
+
+            // Notify clients about the failure
+            wsManager.handleResearchError(new Error(errorMessage), report_id);
+
             res.status(500).json({
                 error: 'Research failed',
                 details: errorMessage
@@ -216,6 +229,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
     } catch (error) {
         console.error('Error in research:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        // For initialization errors, we don't have a report_id yet
         wsManager.handleResearchError(new Error(errorMessage));
         res.status(500).json({
             error: 'Research failed',
@@ -396,6 +410,11 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
             details: errorMessage
         });
     }
+});
+
+// Get running researches
+app.get('/api/running_researches', async (req: Request, res: Response) => {
+    res.json(Array.from(wsManager.getActiveResearchIds()));
 });
 
 // `npm run debug -- 1001` to debug

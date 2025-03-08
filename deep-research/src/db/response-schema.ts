@@ -57,25 +57,9 @@ const final_database_schema = {
         }
 
     ],
-    information_crunching_agent: {
-        // We crunch information per serp query. We consider all the relevent websites only above 7 relevance score from website analyzer agent here. And from them we even crunch down the information even more and even decrease the unrelevance information here. Only include the websites that are even more relevant to the objective. And this will be used for report writing.
-        serpQueries: [
-            {
-                query_timestamp: "Serp query's timestamp, the time it was generated, which is also the identifyer of that query among all the serp queries inside serpQueries array.",
-                crunched_information: [{
-                    url: "https://www.example.com",
-                    content: ["Array of string of content that was crunched by the information crunching agent."],
-                },
-                    // ... Can be as many objects as needed.
-                ]
-
-            }
-        ]
-
-    },
     report: {
         title: "Report title",
-        status: "no-start" | "in-progress" | "completed", // This will be the status of the report. If it's no-start then it means that the report is not started yet. If it's in-progress then it means that the report is in progress. If it's completed then it means that the report is completed.
+        status: "no-start" | "in-progress" | "completed" | "failed", // This will be the status of the report. If it's no-start then it means that the report is not started yet. If it's in-progress then it means that the report is in progress. If it's completed then it means that the report is completed.
         sections: [
             {
                 rank: "Section rank, at which rank show we show this section? This is also the identifyer of this particular section ok?",

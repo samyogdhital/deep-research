@@ -3,8 +3,7 @@ import { JSONFile } from 'lowdb/node'
 import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
-import { ResearchData, FollowUpQnA, Report, InformationCrunchingResult, ScrapedWebsite, SerpQuery } from './schema'
-import { WebsiteStatus } from '../types'
+import { FollowUpQnA, Report, ScrapedWebsite, SerpQuery } from './schema'
 
 // Match the final_database_schema from response-schema.ts
 export interface DBSchema {
@@ -41,18 +40,9 @@ export interface DBSchema {
                 stage: 'failed';
             }>;
         }>;
-        information_crunching_agent: {
-            serpQueries: Array<{
-                query_timestamp: number;
-                crunched_information: Array<{
-                    url: string;
-                    content: string[];
-                }>;
-            }>;
-        };
-        report: {
+        report?: {
             title: string;
-            status: "no-start" | "in-progress" | "completed";
+            status: "in-progress" | "completed" | "failed";
             sections: Array<{
                 rank: number;
                 sectionHeading: string;
@@ -65,7 +55,7 @@ export interface DBSchema {
                 oneValueablePoint: string;
             }>;
             isVisited: boolean;
-            timestamp?: number;
+            timestamp: number;
         };
     }>;
 }
@@ -127,17 +117,6 @@ class ResearchDB {
             followUps_num,
             followUps_QnA: [],
             serpQueries: [],
-            information_crunching_agent: {
-                serpQueries: []
-            },
-            report: {
-                title: '',
-                sections: [],
-                citedUrls: [],
-                status: 'no-start' as const,
-                isVisited: false,
-                timestamp: Date.now()
-            }
         };
 
         this.db.data.researches.push(newResearch);
@@ -145,18 +124,18 @@ class ResearchDB {
         return report_id;
     }
 
-    async addFollowUpQnA(researchId: string, followUpQnA: FollowUpQnA): Promise<boolean> {
+    async addFollowUpQnA(report_id: string, followUpQnA: FollowUpQnA): Promise<boolean> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
         research.followUps_QnA.push(followUpQnA);
         await this.db.write();
         return true;
     }
 
-    async addSerpQuery(researchId: string, serpQuery: SerpQuery): Promise<boolean> {
+    async addSerpQuery(report_id: string, serpQuery: SerpQuery): Promise<boolean> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
         research.serpQueries.push(serpQuery);
         await this.db.write();
@@ -164,13 +143,13 @@ class ResearchDB {
     }
 
     async updateSerpQueryResults(
-        researchId: string,
+        report_id: string,
         queryTimestamp: number,
         successfulWebsites: ScrapedWebsite[],
         failedWebsites: DBSchema['researches'][number]['serpQueries'][number]['failedWebsites']
     ): Promise<boolean> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
         const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
         if (!query) return false;
@@ -228,39 +207,30 @@ class ResearchDB {
             }));
     }
 
-    async saveReport(report: Report): Promise<string> {
+    async saveReport(report_id: string, reportData: DBSchema['researches'][number]['report']): Promise<string> {
         try {
             await this.db.read();
-            const research = this.db.data.researches.find(r => r.report_id === report.report_id);
+            const research = this.db.data.researches.find(r => r.report_id === report_id);
             if (!research) throw new Error('Research not found');
 
-            research.report = report;
+            research.report = reportData;
             await this.db.write();
-            return report.report_id;
+            return report_id;
         } catch (error) {
             console.error('Error in saveReport:', error);
             throw error;
         }
     }
 
-    async addCrunchedInformation(researchId: string, crunchedInfo: InformationCrunchingResult): Promise<boolean> {
+    async getResearchData(report_id: string): Promise<DBSchema['researches'][number] | null> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
-        if (!research) return false;
-        research.information_crunching_agent.serpQueries.push(crunchedInfo);
-        await this.db.write();
-        return true;
-    }
-
-    async getResearchData(researchId: string): Promise<DBSchema['researches'][number] | null> {
-        await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         return research || null;
     }
 
-    async updateResearchParameters(researchId: string, params: { depth: number; breadth: number; followUps_num: number }): Promise<boolean> {
+    async updateResearchParameters(report_id: string, params: { depth: number; breadth: number; followUps_num: number }): Promise<boolean> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
 
         research.depth = params.depth;
@@ -271,9 +241,9 @@ class ResearchDB {
         return true;
     }
 
-    async updateFollowUpAnswer(researchId: string, followUpQnA: FollowUpQnA): Promise<boolean> {
+    async updateFollowUpAnswer(report_id: string, followUpQnA: FollowUpQnA): Promise<boolean> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
 
         const existingQuestionIndex = research.followUps_QnA.findIndex(qa => qa.id === followUpQnA.id);
@@ -285,13 +255,13 @@ class ResearchDB {
     }
 
     async updateWebsiteStatus(
-        researchId: string,
+        report_id: string,
         queryTimestamp: number,
         websiteUrl: string,
         websiteUpdate: Partial<DBSchema['researches'][number]['serpQueries'][number]['successful_scraped_websites'][number]>
     ): Promise<boolean> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
 
         const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
@@ -311,9 +281,9 @@ class ResearchDB {
         return true;
     }
 
-    async getSerpQueryByWebsiteId(researchId: string, websiteId: number): Promise<{ query_timestamp: number } | null> {
+    async getSerpQueryByWebsiteId(report_id: string, websiteId: number): Promise<{ query_timestamp: number } | null> {
         await this.db.read();
-        const research = this.db.data.researches.find(r => r.report_id === researchId);
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return null;
 
         for (const query of research.serpQueries) {

@@ -38,6 +38,11 @@ export class WebSocketManager {
         });
     }
 
+    // Expose active research IDs
+    getActiveResearchIds(): Set<string> {
+        return this.activeResearchIds;
+    }
+
     private async emitEvent(event: string, report_id: string): Promise<void> {
         try {
             // Get fresh DB data before emitting
@@ -120,12 +125,24 @@ export class WebSocketManager {
     }
 
     // Error Handling - Special case, doesn't send research data
-    async handleResearchError(error: Error): Promise<void> {
-        // If the error contains a report_id, remove it from active researches
-        if ('report_id' in error && typeof error.report_id === 'string') {
-            this.activeResearchIds.delete(error.report_id);
+    handleResearchError(error: Error, report_id?: string) {
+        console.error('Research error:', error);
+
+        // If we have a report_id, remove it from active researches
+        if (report_id) {
+            this.activeResearchIds.delete(report_id);
+            // Notify all clients about the error
+            this.io.emit('research_error', {
+                error: error.message,
+                report_id
+            });
+            // Update active researches list for all clients
             this.io.emit('active_researches', Array.from(this.activeResearchIds));
+        } else {
+            // General error without specific report
+            this.io.emit('research_error', {
+                error: error.message
+            });
         }
-        this.io.emit('research_error', { error: error.message });
     }
 }

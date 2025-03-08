@@ -45,8 +45,10 @@ interface CategoryReports {
 
 export function ReportsList({
   reports: initialReports,
+  runningResearches,
 }: {
   reports: ResearchData[];
+  runningResearches: string[];
 }) {
   const router = useRouter();
   const params = useParams();

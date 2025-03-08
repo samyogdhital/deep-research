@@ -26,12 +26,12 @@ const QUERY_SCHEMA: Schema = {
                     query: {
                         type: SchemaType.STRING,
                         description:
-                            "Short Very specific keyword to do serp query, get the website list under each query, scrape the websites and get 100% precise answer to the user's question. This must be 4-5 word max and should only use plain english.",
+                            "Highly relevent very specific and precise keyword to do serp query. This serp query will besued to get the website list, we then scrape the websites and get 100% precise answer to the user's question. That's why you must generate query that will 100% hit on the search engine and get the most relevant websites. This must be 4-15 word max and should only use plain english.",
                     },
                     objective: {
                         type: SchemaType.STRING,
                         description:
-                            'The highly detailed precise objective of the query that we generated for websites analyzing agent to scrape on and analyze whether this objective is met or not analyzing website content.',
+                            'The highly detailed precise objective of the query that we generated for websites analyzing agent to scrape on and analyze whether this objective is met or not analyzing website content. This must as descriptive as possible. Ideally, it must be 5-10 sentences long highly technical and highly detailed.',
                     },
                 },
                 required: ['query', 'objective'],

@@ -10,7 +10,7 @@ import { generateObject } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { encode } from 'gpt-tokenizer';
 import { DBSchema } from '../db';
-
+import { WebSocketManager } from '../websocket';
 export interface ReportResult {
     title: string;
     sections: Array<{
@@ -30,14 +30,17 @@ export class ReportWriter {
     constructor() { }
 
     async generateReport(params: {
-        db_research_data: DBResearchData
+        db_research_data: DBResearchData,
+        wsManager: WebSocketManager
     }): Promise<ReportResult> {
 
-        if (!params.db_research_data.serpQueries.length) {
+        const { db_research_data, wsManager } = params;
+
+        if (!db_research_data.serpQueries.length) {
             throw new Error('Invalid input: Missing serp queries');
         }
 
-        const structuredPrompt = generateContextforReportWriterAgent(params.db_research_data);
+        const structuredPrompt = generateContextforReportWriterAgent(db_research_data);
         const tokens = encode(structuredPrompt);
         console.log("✍️✍️", `Tokens: ${tokens.length}`,);
 
@@ -131,6 +134,7 @@ export class ReportWriter {
     - Be highly technical and detailed. Be as technically detailed as possible answering every sinlge precise question the user has asked.
     - You don't have to explain everything jargons, write final report in a long and highly technical comprehensive way.
     - Use the exact URLs provided in the content for citations.
+    - You must generate the report in the exact schema structure and in full json format ok? Make sure the opening and closing of each objects, string, array, etc. are correct.
 
 ${structuredPrompt}
 
@@ -143,10 +147,16 @@ ${structuredPrompt}
 
 
         try {
-            const result = JSON.parse(response.text());
+            const content = response.text();
+            console.log("🔃🔃", `Content: ${content}`);
+            const result = JSON.parse(content);
             return result;
         } catch (error) {
             console.log('❌❌ Report writing error:', error);
+            wsManager.handleResearchError(
+                new Error(error as string),
+                params.db_research_data.report_id
+            );
             throw new Error('Invalid response from Gemini');
         }
     }
