@@ -85,18 +85,6 @@ export type ResearchResult = {
     failedUrls: string[];
 };
 
-export interface DeepResearchOptions {
-    query_to_find_websites: string;
-    depth: number;
-    breadth: number;
-    signal?: AbortSignal;
-    researchId: string;
-    parentTokenCount?: number;
-    parentFindings?: TrackedLearning[];
-    currentDepth?: number;
-    wsManager?: WebSocketManager;
-}
-
 export interface WebsiteResult {
     id: number;
     url: string;

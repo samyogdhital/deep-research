@@ -2,7 +2,7 @@ import { ResearchData } from '@deep-research/db/schema';
 
 export async function getReport(id: string): Promise<ResearchData | null> {
     try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}`);
+        const response = await fetch(`${process.env.API_BASE_URL}/api/reports/${id}`);
         if (!response.ok) {
             // For 404, return null instead of throwing
             if (response.status === 404) {
@@ -24,7 +24,7 @@ export async function getReport(id: string): Promise<ResearchData | null> {
 
 export async function getAllReports(): Promise<ResearchData[]> {
     try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
+        const response = await fetch(`${process.env.API_BASE_URL}/api/reports`, {
             next: { tags: ['reports'] }
         });
 
@@ -44,7 +44,7 @@ export async function getAllReports(): Promise<ResearchData[]> {
 }
 
 export async function updateReportTitle(id: string, title: string) {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}/title`, {
+    const response = await fetch(`${process.env.API_BASE_URL}/api/reports/${id}/title`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title })
@@ -54,7 +54,7 @@ export async function updateReportTitle(id: string, title: string) {
 }
 
 export async function deleteReport(id: string) {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}`, {
+    const response = await fetch(`${process.env.API_BASE_URL}/api/reports/${id}`, {
         method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to delete report');
@@ -62,7 +62,7 @@ export async function deleteReport(id: string) {
 }
 
 export async function clearAllReports() {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports`, {
+    const response = await fetch(`${process.env.API_BASE_URL}/api/reports`, {
         method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to clear reports');
@@ -71,7 +71,7 @@ export async function clearAllReports() {
 
 export async function markReportAsVisited(id: string) {
     try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}/visit`, {
+        const response = await fetch(`${process.env.API_BASE_URL}/api/reports/${id}/visit`, {
             method: 'PATCH'
         });
 
@@ -91,7 +91,7 @@ export async function markReportAsVisited(id: string) {
 
 
 export async function getRunningResearches(): Promise<string[]> {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/running_researches`, {
+    const response = await fetch(`${process.env.API_BASE_URL}/api/running_researches`, {
         next: { tags: ['running_researches'] }
     });
     if (!response.ok) throw new Error('Failed to fetch running researches');

@@ -220,6 +220,7 @@ export class ReportWriter {
         try {
             const content = response.text();
             console.log("🔃🔃", `Content: ${content}`);
+            saveData(content);
             const result = JSON.parse(content);
             return result;
         } catch (error) {
@@ -312,3 +313,19 @@ const generateContextforReportWriterAgent = (
     `
         )
         .join('\n')}`;
+
+
+
+
+import fs from 'fs';
+
+// Very simple function to save data
+function saveData(data: string) {
+    if (!fs.existsSync('data')) {
+        fs.mkdirSync('data'); // Create 'data' folder if it doesn't exist
+    }
+    fs.writeFileSync('data/gemini.txt', data); // Save the data to 'file.txt'
+    console.log('Data saved!');
+}
+
+// Example usage

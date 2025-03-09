@@ -5,7 +5,9 @@
   "scripts": {
     "prod": "tsx --env-file=.env.prod server.ts",
     "dev": "tsx watch --env-file=.env.local server.ts",
-    "debug": "tsx watch --env-file=.env.local server.ts"
+    "debug": "tsx watch --env-file=.env.local server.ts",
+    "build": "tsc",
+    "start": "node --env-file=.env.prod dist/server.js"
   },
   "author": "",
   "license": "ISC",
