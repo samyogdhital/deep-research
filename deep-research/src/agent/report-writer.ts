@@ -6,10 +6,10 @@
 
 // Step 3: Report from middle-report-agent is passed here along with all the learnings and conclusions we got and made during the deep research process. The report from both of these initial and middle report agent is also passed here. The user's initial query is also passed here and made sure that this final report is not missing any important infomration if it is present on the internet answering the precise question the user has asked.
 
-import { generateObject, SystemInstruction, UserPrompt } from '../ai/providers';
+import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 import { encode } from 'gpt-tokenizer';
-import { DBSchema } from '../db';
+import { DBSchema } from '../db/db';
 import { WebSocketManager } from '../websocket';
 export interface ReportResult {
     title: string;
@@ -207,10 +207,10 @@ export class ReportWriter {
             contents: [{ role: 'user', parts: userPrompt }],
         };
 
-        const { response } = await generateObject({
+        const { response } = await callGeminiLLM({
             system: systemInstruction,
             user: userPromptSchema,
-            model: process.env.REPORT_WRITING_MODEL as string,
+            model: process.env.RESEARCH_WRITING_MODEL as string,
             generationConfig: {
                 responseSchema: reportSchema
             }

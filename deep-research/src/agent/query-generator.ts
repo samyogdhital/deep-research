@@ -4,8 +4,8 @@
 
 import { Schema, SchemaType } from '@google/generative-ai';
 
-import { generateObject, SystemInstruction, UserPrompt } from '../ai/providers';
-import { DBSchema } from '../db';
+import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
+import { DBSchema } from '../db/db';
 import { DBResearchData } from './report-writer';
 
 export interface QueryWithObjective {
@@ -161,7 +161,7 @@ export async function generateQueriesWithObjectives(
 
 
     try {
-        const { response } = await generateObject({
+        const { response } = await callGeminiLLM({
             system: systemInstruction,
             user: userPromptSchema,
             model: process.env.QUERY_GENERATING_MODEL as string,

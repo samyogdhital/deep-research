@@ -19,26 +19,28 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { updateReportTitle } from '@/lib/db';
+import { updateReportTitle } from '@/lib/apis';
 import { deleteReportAction } from '@/lib/server-actions/reports';
 import { useResearchStore } from '@/lib/research-store';
 import type { ResearchData } from '@deep-research/db/schema';
-import { DBSchema } from '@deep-research/db';
+import { DBSchema } from '@deep-research/db/db';
 
-const truncate = (str: string | undefined | null): string => {
-  if (!str) return 'Untitled Research';
+const truncate = (str: string): string => {
+  // if (!str) return 'Untitled Research';
   return str.length > 24 ? str.slice(0, 26) + '...' : str;
 };
 
 // Use the exact type from DBSchema
-type Report = DBSchema['researches'][number];
-type UIReport = Required<Report['report']> & { report_id: string };
+type Research = DBSchema['researches'][number];
+type ReportType = Required<Research['report']> & { report_id: string };
 
 interface CategoryReports {
-  today: UIReport[];
-  week: UIReport[];
-  month: UIReport[];
-  failed: UIReport[];
+  unreadReports: Research[];
+  failedReports: Research[];
+  failedResearches: Research[];
+  todayReports: Research[];
+  weekReports: Research[];
+  monthReports: Research[];
 }
 
 export function ReportsList({
@@ -62,68 +64,70 @@ export function ReportsList({
   const [report_ID, setReport_ID] = useState<string | null>(null);
 
   // Transform ResearchData to UIReport format
-  const transformReports = (data: ResearchData[]): UIReport[] => {
-    return data
-      .filter(
-        (r): r is ResearchData & { report: NonNullable<Report['report']> } =>
-          !!r.report
-      )
-      .map((r) => ({
-        report_id: r.report_id,
-        title: r.report.title,
-        status: r.report.status,
-        sections: r.report.sections,
-        citedUrls: r.report.citedUrls,
-        isVisited: r.report.isVisited,
-        timestamp: r.report.timestamp,
-      }));
+  const transformReports = (
+    data: ResearchData[]
+  ): NonNullable<ResearchData>[] => {
+    return data.filter(
+      (r): r is ResearchData & { report: NonNullable<Research['report']> } =>
+        !!r.report
+    );
   };
 
-  const categorizeReports = (
-    reports: UIReport[]
-  ): CategoryReports & { unread: UIReport[] } => {
+  const categorizeReports = (researches: ResearchData[]): CategoryReports => {
     const now = Date.now();
     const dayInMs = 86400000; // 24 hours
     const weekInMs = dayInMs * 7;
     const monthInMs = dayInMs * 30;
 
     // First separate unread and failed reports
-    const unreadReports = reports.filter((r) => !r.isVisited);
-    const failedReports = reports.filter((r) => r.status === 'failed');
-    const readReports = reports.filter(
-      (r) => r.isVisited && r.status !== 'failed'
+    const unreadReports = researches.filter(
+      (r) => r.report?.status === 'completed' && !r.report?.isVisited
+    );
+    const failedReports = researches.filter(
+      (r) => r.report?.status === 'failed'
+    );
+    const readReports = researches.filter(
+      (r) => r.report?.isVisited && r.report?.status === 'completed'
     );
 
+    const failedResearches = researches.filter((r) => {
+      const queriesLength = r.serpQueries.length;
+      return (
+        !r.report && !queriesLength && !runningResearches.includes(r.report_id)
+      );
+    });
+
     // Sort function
-    const sortByTimestamp = (a: UIReport, b: UIReport) =>
-      b.timestamp - a.timestamp;
+    const sortByTimestamp = (a: Research, b: Research) =>
+      b!.report!.timestamp - a!.report!.timestamp;
 
     // Categorize read reports
-    const today: UIReport[] = [];
-    const week: UIReport[] = [];
-    const month: UIReport[] = [];
+    const today: Research[] = [];
+    const week: Research[] = [];
+    const month: Research[] = [];
 
-    readReports.forEach((report) => {
-      const diff = now - report.timestamp;
-      if (diff < dayInMs) today.push(report);
-      else if (diff < weekInMs) week.push(report);
-      else if (diff < monthInMs) month.push(report);
+    readReports.forEach((research) => {
+      const diff = now - research.report!.timestamp;
+      if (diff < dayInMs) today.push(research);
+      else if (diff < weekInMs) week.push(research);
+      else if (diff < monthInMs) month.push(research);
     });
 
     return {
-      unread: unreadReports.sort(sortByTimestamp),
-      failed: failedReports.sort(sortByTimestamp),
-      today: today.sort(sortByTimestamp),
-      week: week.sort(sortByTimestamp),
-      month: month.sort(sortByTimestamp),
+      unreadReports: unreadReports.sort(sortByTimestamp),
+      failedReports: failedReports.sort(sortByTimestamp),
+      failedResearches,
+      todayReports: today.sort(sortByTimestamp),
+      weekReports: week.sort(sortByTimestamp),
+      monthReports: month.sort(sortByTimestamp),
     };
   };
 
-  const handleRename = (report: UIReport) => {
+  const handleRename = (research: ResearchData) => {
     setEditing({
-      id: report.report_id,
-      value: report.title,
-      originalValue: report.title,
+      id: research.report_id,
+      value: research!.report!.title,
+      originalValue: research!.report!.title,
     });
   };
 
@@ -167,13 +171,13 @@ export function ReportsList({
 
   const handleKeyDown = async (
     e: React.KeyboardEvent<HTMLInputElement>,
-    report: UIReport
+    research: ResearchData
   ) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (editing.value.trim()) {
         try {
-          await updateReportTitle(report.report_id, editing.value);
+          await updateReportTitle(research.report_id, editing.value);
           router.refresh();
         } catch (err) {
           console.error('Failed to rename report:', err);
@@ -187,177 +191,216 @@ export function ReportsList({
     }
   };
 
-  const renderReportItem = (report: UIReport) => (
-    <Link
-      title={report.title}
-      key={report.report_id}
-      href={
-        report.title
-          ? `/report/${report.report_id}`
-          : `/realtime/${report.report_id}`
-      }
-      className={`group block px-2 py-1.5 rounded transition-colors relative
+  const renderReportItem = (research: ResearchData) => {
+    return (
+      <Link
+        title={
+          research.report?.title ||
+          (research.report?.status === 'failed'
+            ? 'Report Failed'
+            : 'Research Failed')
+        }
+        key={research.report_id}
+        href={
+          research.report?.status === 'completed'
+            ? `/report/${research.report_id}`
+            : `/realtime/${
+                research.report_id || `realtime-${research.report_id}`
+              }`
+        }
+        className={`group block px-2 py-1.5 rounded transition-colors relative
                 ${
-                  params.slug === report.report_id
+                  params.slug === research.report_id
                     ? 'bg-[#007e81] text-white dark:bg-[#007e81] font-medium'
                     : 'text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
-      onClick={(e) => {
-        if (editing.id === report.report_id) {
-          e.preventDefault();
-        }
-      }}
-    >
-      <div className='flex items-center min-h-[24px] relative'>
-        {editing.id === report.report_id ? (
-          <input
-            type='text'
-            value={editing.value}
-            onChange={(e) =>
-              setEditing((prev) => ({ ...prev, value: e.target.value }))
-            }
-            onKeyDown={(e) => handleKeyDown(e, report)}
-            className='w-full bg-transparent border-none outline-none text-sm leading-6'
-            autoFocus
-          />
-        ) : (
-          <div className='w-full relative'>
-            {/* Text container that stays within Link width */}
+        onClick={(e) => {
+          if (editing.id === research.report_id) {
+            e.preventDefault();
+          }
+        }}
+      >
+        <div className='flex items-center min-h-[24px] relative'>
+          {editing.id === research.report_id ? (
+            <input
+              type='text'
+              value={editing.value}
+              onChange={(e) =>
+                setEditing((prev) => ({ ...prev, value: e.target.value }))
+              }
+              onKeyDown={(e) => handleKeyDown(e, research)}
+              className='w-full bg-transparent border-none outline-none text-sm leading-6'
+              autoFocus
+            />
+          ) : (
             <div className='w-full relative'>
-              <span className='block text-sm leading-6 whitespace-nowrap overflow-hidden'>
-                {truncate(report.title) || 'Untitled Research'}
-              </span>
+              {/* Text container that stays within Link width */}
+              <div className='w-full relative'>
+                <span className='block text-sm leading-6 whitespace-nowrap overflow-hidden'>
+                  {research.report?.title
+                    ? truncate(research.report?.title)
+                    : research.report?.status === 'failed'
+                    ? 'Failed Report'
+                    : 'Failed Research'}
+                </span>
 
-              {/* Menu button - no permanent ellipsis */}
-              <div className='absolute right-0 top-1/2 -translate-y-1/2 z-10'>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      onClick={(e) => e.preventDefault()}
-                      className={`
+                {/* Menu button - no permanent ellipsis */}
+                <div className='absolute right-0 top-1/2 -translate-y-1/2 z-10'>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        onClick={(e) => e.preventDefault()}
+                        className={`
                                                 opacity-0 group-hover:opacity-100
                                                 p-1.5 rounded-sm transition-all duration-200
                                                 ${
                                                   params.slug ===
-                                                  report.report_id
+                                                  research.report_id
                                                     ? 'bg-[#006669] text-white'
                                                     : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                                 }
                                             `}
+                      >
+                        <BsThreeDots className='w-3 h-3' />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      className='min-w-[8rem] p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg'
+                      align='end'
+                      side='right'
+                      onClick={(e) => e.preventDefault()}
                     >
-                      <BsThreeDots className='w-3 h-3' />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    className='min-w-[8rem] p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg'
-                    align='end'
-                    side='right'
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    <DropdownMenuItem
-                      className='flex items-center px-2 py-1.5 text-sm cursor-pointer text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2'
-                      onClick={() => handleRename(report)}
-                    >
-                      <FiEdit2 className='w-4 h-4' />
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className='flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2'
-                      onClick={() => setReport_ID(report.report_id)}
-                    >
-                      <FiTrash2 className='w-4 h-4' />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      {research.report?.status === 'completed' && (
+                        <DropdownMenuItem
+                          className='flex items-center px-2 py-1.5 text-sm cursor-pointer text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2'
+                          onClick={() => handleRename(research)}
+                        >
+                          <FiEdit2 className='w-4 h-4' />
+                          Rename
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        className='flex items-center px-2 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-sm gap-2'
+                        onClick={() => setReport_ID(research.report_id)}
+                      >
+                        <FiTrash2 className='w-4 h-4' />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-    </Link>
-  );
+          )}
+        </div>
+      </Link>
+    );
+  };
 
   // Get reports from store but use initialReports as fallback
-  const storeReports = useResearchStore((state) => state.reports);
+  // const storeReports = useResearchStore((state) => state.reports);
+  // const setReports = useResearchStore((state) => state.setReports);
 
   // Transform the reports to match our UI format
-  const reports = storeReports.length
-    ? transformReports(storeReports)
-    : transformReports(initialReports);
+  const reports = initialReports;
 
   // Sync to store after render
-  useEffect(() => {
-    useResearchStore.getState().setReports(initialReports);
-  }, [initialReports]);
+  // useEffect(() => {
+  //   setReports(initialReports);
+  // }, [initialReports]);
 
   // Use reports instead of storeReports
   const categorizedReports = categorizeReports(reports);
 
   return (
-    <div className='space-y-6'>
+    <div className='h-full'>
       {/* Unread Section */}
-      {categorizedReports.unread.length > 0 && (
-        <section className='space-y-1'>
+      {categorizedReports.unreadReports.length > 0 && (
+        <section className='space-y-1 mb-3'>
           <h3 className='text-xs font-medium px-2 mb-2 flex items-center gap-1.5'>
             <span className='w-1.5 h-1.5 rounded-full bg-[#1d9bf0] dark:bg-[#1a8cd8]' />
             <span className='text-[#1d9bf0] dark:text-[#1a8cd8]'>Unread</span>
           </h3>
           <div className='space-y-1'>
-            {categorizedReports.unread.map((report) =>
-              renderReportItem(report)
+            {categorizedReports.unreadReports.map((research) =>
+              renderReportItem(research)
             )}
           </div>
         </section>
       )}
 
-      {/* Failed Section */}
-      {categorizedReports.failed.length > 0 && (
-        <section className='space-y-1'>
+      {/* Report Failed Section */}
+      {categorizedReports.failedReports.length > 0 && (
+        <section className='space-y-1 mb-3'>
           <h3 className='text-xs font-medium px-2 mb-2 flex items-center gap-1.5'>
             <span className='w-1.5 h-1.5 rounded-full bg-red-300 dark:bg-red-800' />
-            <span className='text-red-400 dark:text-red-500'>Failed</span>
+            <span className='text-red-400 dark:text-red-500'>
+              Report Failed
+            </span>
           </h3>
           <div className='space-y-1'>
-            {categorizedReports.failed.map((report) =>
-              renderReportItem(report)
+            {categorizedReports.failedReports.map((research) =>
+              renderReportItem(research)
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Research Failed Section */}
+      {categorizedReports.failedResearches.length > 0 && (
+        <section className='space-y-1 mb-3'>
+          <h3 className='text-xs font-medium px-2 mb-2 flex items-center gap-1.5'>
+            <span className='w-1.5 h-1.5 rounded-full bg-red-300 dark:bg-red-800' />
+            <span className='text-red-400 dark:text-red-500'>
+              Research Failed
+            </span>
+          </h3>
+          <div className='space-y-1'>
+            {categorizedReports.failedResearches.map((research) =>
+              renderReportItem(research)
             )}
           </div>
         </section>
       )}
 
       {/* Today Section */}
-      {categorizedReports.today.length > 0 && (
-        <section className='space-y-1'>
+      {categorizedReports.todayReports.length > 0 && (
+        <section className='space-y-1 mb-3'>
           <h3 className='text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2'>
             Today
           </h3>
           <div className='space-y-1'>
-            {categorizedReports.today.map((report) => renderReportItem(report))}
+            {categorizedReports.todayReports.map((report) =>
+              renderReportItem(report)
+            )}
           </div>
         </section>
       )}
 
       {/* Previous 7 Days Section */}
-      {categorizedReports.week.length > 0 && (
-        <section className='space-y-1'>
+      {categorizedReports.weekReports.length > 0 && (
+        <section className='space-y-1 mb-3'>
           <h3 className='text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2'>
             Previous 7 Days
           </h3>
           <div className='space-y-1'>
-            {categorizedReports.week.map((report) => renderReportItem(report))}
+            {categorizedReports.weekReports.map((report) =>
+              renderReportItem(report)
+            )}
           </div>
         </section>
       )}
 
       {/* Previous 30 Days Section */}
-      {categorizedReports.month.length > 0 && (
-        <section className='space-y-1'>
+      {categorizedReports.monthReports.length > 0 && (
+        <section className='space-y-1 mb-3'>
           <h3 className='text-xs font-medium text-gray-400 dark:text-gray-500 px-2 mb-2'>
             Previous 30 Days
           </h3>
           <div className='space-y-1'>
-            {categorizedReports.month.map((report) => renderReportItem(report))}
+            {categorizedReports.monthReports.map((report) =>
+              renderReportItem(report)
+            )}
           </div>
         </section>
       )}

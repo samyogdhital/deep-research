@@ -7,6 +7,8 @@ import { QueryTree } from '@/components/QueryTree';
 import { QuerySheet } from '@/components/QuerySheet';
 import type { ResearchData, SerpQuery } from '@deep-research/db/schema';
 import { Button } from '@/components/ui/button';
+import { TbPlayerPlayFilled } from 'react-icons/tb';
+import { useParams, useRouter } from 'next/navigation';
 
 interface QueryNode {
   id: number;
@@ -21,10 +23,15 @@ interface QueryNode {
 
 interface RealtimeViewProps {
   initialData: ResearchData;
+  browser_report_id: string;
 }
 
-export function RealtimeView({ initialData }: RealtimeViewProps) {
-  const [socket, setSocket] = useState<Socket | null>(null);
+export function RealtimeView({
+  initialData,
+  browser_report_id,
+}: RealtimeViewProps) {
+  const router = useRouter();
+
   const [queryNodes, setQueryNodes] = useState<QueryNode[]>(() => {
     const nodes = generateQueryTree(initialData.depth, initialData.breadth);
     initialData.serpQueries.forEach((query, index) => {
@@ -51,6 +58,8 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
+
+  const [activeResearches, setActiveResearches] = useState<string[]>([]);
 
   // Check tree visibility
   const checkTreeVisibility = useCallback(() => {
@@ -218,23 +227,50 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
       'scraping_a_website',
       'analyzing_a_website',
       'analyzed_a_website',
-    ].forEach((event) => socket.on(event, handleData));
+      'analyzing_serp_query',
+      'analyzed_serp_query',
+    ].forEach((event) =>
+      socket.on(event, (data: ResearchData, report_id: string) => {
+        // Only update state if the event is for the current research
+        if (report_id === browser_report_id) {
+          handleData(data);
+        }
+      })
+    );
 
     // Report status handlers
-    socket.on('report_writing_start', () => setReportStatus('in-progress'));
+    socket.on(
+      'report_writing_start',
+      (data: ResearchData, report_id: string) => {
+        if (report_id === browser_report_id) {
+          setReportStatus('in-progress');
+        }
+      }
+    );
 
-    socket.on('report_writing_successfull', (data: ResearchData) => {
-      setReportStatus('completed');
-      window.location.href = `/report/${data.report_id}`;
-    });
+    socket.on(
+      'report_writing_successfull',
+      (data: ResearchData, report_id: string) => {
+        if (report_id === browser_report_id) {
+          setReportStatus('completed');
+          window.location.href = `/report/${data.report_id}`;
+        }
+      }
+    );
 
-    socket.on('research_error', () => setReportStatus('failed'));
+    socket.on(
+      'research_error',
+      (error: { error: string; report_id?: string }) => {
+        if (!error.report_id || error.report_id === browser_report_id) {
+          setReportStatus('failed');
+        }
+      }
+    );
 
-    setSocket(socket);
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [browser_report_id]);
 
   const updateNodesWithData = useCallback((queries: SerpQuery[]) => {
     setQueryNodes((prev) =>
@@ -246,6 +282,48 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
     );
   }, []);
 
+  // Fetch active researches
+  useEffect(() => {
+    const fetchActiveResearches = async () => {
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/running_researches`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setActiveResearches(data);
+        }
+      } catch (error) {
+        console.error('Error fetching active researches:', error);
+      }
+    };
+    fetchActiveResearches();
+  }, []);
+
+  const handleResume = async () => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/resume`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ report_id: initialData.report_id }),
+        }
+      );
+
+      if (response.ok) {
+        // Reload the page after successful resume
+        router.refresh();
+      } else {
+        console.error('Failed to resume research');
+      }
+    } catch (error) {
+      console.error('Error resuming research:', error);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -256,17 +334,32 @@ export function RealtimeView({ initialData }: RealtimeViewProps) {
         userSelect: selectedQuery ? 'text' : 'none',
       }}
     >
-      {initialData.report?.title && (
+      {initialData && (
         <div className='fixed top-4 right-4 z-50'>
-          <Button
-            variant='outline'
-            onClick={() =>
-              (window.location.href = `/report/${initialData.report_id}`)
-            }
-            className='text-[#007e81] hover:text-[#006669] dark:text-[#00a3a8] dark:hover:text-[#008589] border-[#007e81] dark:border-[#00a3a8]'
-          >
-            View Report
-          </Button>
+          {initialData.report?.status === 'completed' ? (
+            <Button
+              variant='outline'
+              onClick={() =>
+                (window.location.href = `/report/${initialData.report_id}`)
+              }
+              className='text-[#007e81] hover:text-[#006669] dark:text-[#00a3a8] dark:hover:text-[#008589] border-[#007e81] dark:border-[#00a3a8]'
+            >
+              View Report
+            </Button>
+          ) : (
+            !activeResearches.includes(initialData.report_id) &&
+            initialData.serpQueries.length > 0 &&
+            (!initialData.report || initialData.report.status === 'failed') && (
+              <Button
+                variant='outline'
+                onClick={handleResume}
+                className='text-orange-600 hover:text-orange-700 dark:text-orange-500 dark:hover:text-orange-400 border-orange-600 dark:border-orange-500 flex items-center gap-2'
+              >
+                <TbPlayerPlayFilled className='w-4 h-4' />
+                Resume
+              </Button>
+            )
+          )}
         </div>
       )}
       <div

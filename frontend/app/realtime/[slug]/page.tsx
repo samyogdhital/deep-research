@@ -1,6 +1,8 @@
 import { RealtimeView } from '@/components/RealtimeView';
 import { Suspense } from 'react';
-import { getReport } from '@/lib/db';
+import { getReport } from '@/lib/apis';
+import NotFound from './not-found';
+import Loading from './loading';
 
 export default async function RealtimePage(
   // Don't remove this comment this is new change from nextjs 15.
@@ -16,13 +18,13 @@ export default async function RealtimePage(
   const initialData = await getReport(slug);
 
   if (!initialData) {
-    return <div>Report not found</div>;
+    return <NotFound />;
   }
 
   return (
     <main className='fixed inset-0 w-full h-full bg-[#0B1120]'>
-      <Suspense fallback={<div>Loading...</div>}>
-        <RealtimeView initialData={initialData} />
+      <Suspense>
+        <RealtimeView initialData={initialData} browser_report_id={slug} />
       </Suspense>
     </main>
   );

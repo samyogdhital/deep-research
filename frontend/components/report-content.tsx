@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { socket } from '@/lib/research-store';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -42,41 +41,6 @@ interface ReportContentProps {
 
 export function ReportContent({ initialData, reportId }: ReportContentProps) {
   const [researchData, setResearchData] = useState(initialData);
-
-  useEffect(() => {
-    if (!socket.connected) {
-      socket.connect();
-    }
-
-    // Listen for real-time updates
-    const events = [
-      'generating_followups',
-      'followups_generated',
-      'new_serp_query',
-      'new_website_successfully_scrape',
-      'website_analyzer_agent',
-      'crunching_serp_query',
-      'crunched_information',
-      'report_writing_start',
-      'report_writing_successfull',
-    ];
-
-    events.forEach((event) => {
-      socket.on(event, (data: ResearchData) => {
-        console.log(`Received ${event} event:`, data);
-        if (data.report_id === reportId) {
-          setResearchData(data);
-        }
-      });
-    });
-
-    return () => {
-      events.forEach((event) => socket.off(event));
-      if (socket.connected) {
-        socket.disconnect();
-      }
-    };
-  }, [reportId]);
 
   const { report } = researchData;
 

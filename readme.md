@@ -1,11 +1,7 @@
 Installation of this mega project.
 
 First setup db if you are running through docker. create a new database folder and have researches.json file inside it.
-
-
-Use profiles during development.
-Do not use this in production. Just start all the services in production.
-
+- Make sure that on .env.prod for frontend the NEXT_PUBLIC_API_BASE_URL is http://localhost:3001
 
 
 `docker compose --profile infra web up`

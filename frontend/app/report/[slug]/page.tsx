@@ -1,7 +1,7 @@
 import { ResearchData } from '@deep-research/db/schema';
 import { ReportContent } from '@/components/report-content';
 import { notFound } from 'next/navigation';
-import { getReport, markReportAsVisited } from '@/lib/db';
+import { getReport, markReportAsVisited } from '@/lib/apis';
 import { Suspense } from 'react';
 import Loading from './loading';
 

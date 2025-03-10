@@ -7,7 +7,11 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import type { SerpQuery } from '@deep-research/db/schema';
-import { CircleIcon, CheckCircleIcon, XCircleIcon } from 'lucide-react';
+import { CheckCircleIcon, XCircleIcon } from 'lucide-react';
+import { LuLoaderCircle } from 'react-icons/lu';
+import { TbAnalyzeFilled } from 'react-icons/tb';
+import { HiCheck } from 'react-icons/hi';
+import { MdOutlineClose } from 'react-icons/md';
 
 interface QuerySheetProps {
   query: SerpQuery;
@@ -24,10 +28,10 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
       >
         <SheetHeader>
           <SheetTitle className='text-xl font-bold break-words'>
-            {query.query}
+            <span className='font-bold'>Query:</span> {query.query}
           </SheetTitle>
           <SheetDescription className='text-sm text-gray-500 dark:text-gray-400 mt-2 break-words'>
-            {query.objective}
+            <span className='font-bold'>Objective:</span> {query.objective}
           </SheetDescription>
         </SheetHeader>
 
@@ -49,19 +53,26 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
                       {website.title || website.url}
                     </h4>
                     <p className='text-sm text-gray-500 dark:text-gray-400 break-all'>
-                      {website.url}
+                      <a
+                        href={website.url}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        className='hover:text-blue-500 dark:hover:text-blue-400 hover:underline'
+                      >
+                        {website.url}
+                      </a>
                     </p>
                   </div>
                   <div className='flex-shrink-0 self-start w-[100px]'>
                     {website.status === 'scraping' && (
                       <div className='flex items-center text-yellow-500 dark:text-yellow-400 whitespace-nowrap'>
-                        <CircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
+                        <LuLoaderCircle className='w-5 h-5 mr-1 flex-shrink-0 animate-spin' />
                         <span className='text-sm'>Scraping</span>
                       </div>
                     )}
                     {website.status === 'analyzing' && (
                       <div className='flex items-center text-blue-500 dark:text-blue-400 whitespace-nowrap'>
-                        <CircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
+                        <TbAnalyzeFilled className='w-5 h-5 mr-1 flex-shrink-0 animate-spin' />
                         <span className='text-sm'>Analyzing</span>
                       </div>
                     )}
@@ -69,12 +80,12 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
                       <div className='flex items-center whitespace-nowrap'>
                         {website.is_objective_met ? (
                           <div className='flex items-center text-green-500 dark:text-green-400'>
-                            <CheckCircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
+                            <HiCheck className='w-5 h-5 mr-1 flex-shrink-0' />
                             <span className='text-sm'>Analyzed</span>
                           </div>
                         ) : (
                           <div className='flex items-center text-orange-500 dark:text-orange-400'>
-                            <XCircleIcon className='w-4 h-4 mr-1 flex-shrink-0' />
+                            <MdOutlineClose className='w-5 h-5 mr-1 flex-shrink-0' />
                             <span className='text-sm'>Not Relevant</span>
                           </div>
                         )}
@@ -86,20 +97,25 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
                 {/* Extracted Information */}
                 {website.status === 'analyzed' &&
                   website.core_content.length > 0 && (
-                    <div className='mt-4 space-y-2'>
-                      <h5 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                        Extracted Information
-                      </h5>
-                      <div className='bg-gray-50 dark:bg-gray-800 rounded-md p-3'>
-                        <ul className='list-disc list-inside space-y-2 text-sm text-gray-600 dark:text-gray-300'>
-                          {website.core_content.map((info, i) => (
-                            <li key={i} className='break-words'>
-                              <span className='break-words'>{info}</span>
-                            </li>
-                          ))}
-                        </ul>
+                    <>
+                      <span className='text-sm text-gray-500 dark:text-gray-400'>
+                        Relevance Score: {website.relevance_score}/10
+                      </span>
+                      <div className='mt-4 space-y-2'>
+                        <h5 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                          Extracted Information
+                        </h5>
+                        <div className='bg-gray-50 dark:bg-gray-800 rounded-md p-3'>
+                          <ul className='list-disc ml-4 space-y-2 text-sm text-gray-600 dark:text-gray-300'>
+                            {website.core_content.map((info, i) => (
+                              <li key={i} className='pl-1 break-words'>
+                                {info}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
               </div>
             ))}
@@ -108,14 +124,23 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
           {/* Failed Websites */}
           {query.failedWebsites && query.failedWebsites.length > 0 && (
             <div className='mt-8'>
-              <h3 className='text-sm font-medium text-gray-500 dark:text-gray-400 mb-2'>
-                Failed Websites
-              </h3>
-              <ul className='list-disc list-inside space-y-1 text-sm text-gray-500 dark:text-gray-400'>
+              <div className='flex items-center gap-2 mb-3'>
+                <XCircleIcon className='w-5 h-5 text-red-500 flex-shrink-0' />
+                <h3 className='text-sm font-medium text-gray-500 dark:text-gray-400'>
+                  Failed Websites
+                </h3>
+              </div>
+              <ul className='space-y-2 text-sm text-gray-500 dark:text-gray-400 ml-6'>
                 {query.failedWebsites.map((failedWebsite, index) => (
-                  <li key={index} className='flex items-center gap-2'>
-                    <XCircleIcon className='w-4 h-4 text-red-500' />
-                    <span>{failedWebsite.website}</span>
+                  <li key={index} className='list-disc break-all'>
+                    <a
+                      href={failedWebsite.website}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='hover:text-blue-500 dark:hover:text-blue-400 hover:underline'
+                    >
+                      {failedWebsite.website}
+                    </a>
                   </li>
                 ))}
               </ul>

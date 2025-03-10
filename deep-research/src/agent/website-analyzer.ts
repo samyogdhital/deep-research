@@ -3,7 +3,7 @@
 // Step 2: If the very precise, strategic, exact, accurate and most relevent information is found on the website, it is returned by the agent in the fixed json schema it got. If the information is not found, the agent will return nothing and pass on. (While doing so, agent will not return unrelevent information showing false achievement. If the objective is clearly met the information is returned, if not, nothing is returned.)
 // Step 3: The facts and figures, counter intuitive thoughts, quotes, numbers and the infrormations that indirectly helps achieve the objective is highly encouraged to return. But keep in mind completely unrelevent and unrelated information is not shared at all.
 
-import { generateObject, SystemInstruction, UserPrompt } from '../ai/providers';
+import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
 import { Part, Schema, SchemaType } from '@google/generative-ai';
 import { ScrapedContent } from '../types';
 
@@ -165,7 +165,7 @@ export class WebsiteAnalyzer {
     };
 
     try {
-      const { response } = await generateObject({
+      const { response } = await callGeminiLLM({
         system: systemInstruction,
         user: userPromptSchema,
         model: process.env.WEBSITE_ANALYZING_MODEL as string,

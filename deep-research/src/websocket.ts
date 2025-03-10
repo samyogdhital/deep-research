@@ -1,17 +1,10 @@
 import { Server } from 'socket.io';
 import { createServer } from 'http';
-import { ResearchDB } from './db';
+import { ResearchDB } from './db/db';
 import { WebsiteStatus } from './types';
-import type { DBSchema } from './db';
+import type { DBSchema } from './db/db';
 
-export interface ResearchState {
-    id: string;
-    prompt: string;
-    status: 'collecting' | 'analyzing' | 'generating' | 'complete' | 'failed';
-    startTime: number;
-    controller?: AbortController;
-    cleanup?: () => void;
-}
+
 
 // The only payload we send is the research data
 type WebSocketPayload = DBSchema['researches'][number]
@@ -59,7 +52,7 @@ export class WebSocketManager {
                 ...freshData
             };
 
-            this.io.emit(event, payload);
+            this.io.emit(event, payload, report_id);
         } catch (error) {
             console.error(`Error emitting ${event}:`, error);
             this.io.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
@@ -75,9 +68,9 @@ export class WebSocketManager {
         await this.emitEvent('followups_generated', report_id);
     }
 
-    async handleResearchStart(research: ResearchState): Promise<void> {
-        this.activeResearchIds.add(research.id);
-        await this.emitEvent('research_start', research.id);
+    async handleResearchStart(report_id: string): Promise<void> {
+        this.activeResearchIds.add(report_id);
+        await this.emitEvent('research_start', report_id);
         // Broadcast updated active research list
         this.io.emit('active_researches', Array.from(this.activeResearchIds));
     }
@@ -103,13 +96,13 @@ export class WebSocketManager {
         await this.emitEvent('analyzed_a_website', report_id);
     }
 
-    // Information Crunching Process Events
-    async handleCrunchingQuery(report_id: string): Promise<void> {
-        await this.emitEvent('crunching_a_serp_query', report_id);
+    // SERP Query Analysis Events
+    async handleAnalyzingSerpQuery(report_id: string): Promise<void> {
+        await this.emitEvent('analyzing_serp_query', report_id);
     }
 
-    async handleQueryCrunched(report_id: string): Promise<void> {
-        await this.emitEvent('crunched_a_serp_query', report_id);
+    async handleAnalyzedSerpQuery(report_id: string): Promise<void> {
+        await this.emitEvent('analyzed_serp_query', report_id);
     }
 
     // Report Writing Process Events
@@ -144,5 +137,11 @@ export class WebSocketManager {
                 error: error.message
             });
         }
+    }
+
+    // Clear all active researches
+    clearAllActiveResearches() {
+        this.activeResearchIds.clear();
+        this.io.emit('active_researches', []);
     }
 }

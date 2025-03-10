@@ -197,14 +197,14 @@ class ResearchDB {
         return true;
     }
 
-    async getAllReports(): Promise<Array<{ report_id: string; report: any }>> {
+    async getAllReports(): Promise<DBSchema['researches']> {
         await this.db.read();
         return this.db.data.researches
-            // .filter(r => r.report)
-            .map(r => ({
-                report_id: r.report_id,
-                report: r.report
-            }));
+        // .filter(r => r.report)
+        // .map(r => ({
+        //     report_id: r.report_id,
+        //     report: r.report
+        // }));
     }
 
     async saveReport(report_id: string, reportData: DBSchema['researches'][number]['report']): Promise<string> {

@@ -2,11 +2,12 @@ import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import { deepResearch } from './src/deep-research';
-import { ResearchDB } from './src/db';
+import { ResearchDB } from './src/db/db';
 import { generateFollowUps } from './src/agent/prompt-analyzer';
 import { ReportWriter } from './src/agent/report-writer';
-import { WebSocketManager, ResearchState } from './src/websocket';
+import { WebSocketManager } from './src/websocket';
 import { config as envConfig } from 'dotenv';
+import { DBSchema } from './src/db/db';
 
 envConfig();
 const app = express();
@@ -67,7 +68,7 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
 
 app.post('/api/research/start', async (req: Request, res: Response): Promise<void> => {
     try {
-        const { initial_query, depth, breadth, report_id: provided_report_id, followUpAnswers } = req.body;
+        const { initial_query, depth, breadth, report_id: provided_report_id, followUpAnswers, is_deep_research } = req.body;
 
         // Input validation
         if (!initial_query?.trim()) {
@@ -133,26 +134,30 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             }
         }
 
-        // Start research process
-        const controller = new AbortController();
-        const research: ResearchState = {
-            id: report_id,
-            prompt: initial_query,
-            status: 'collecting',
-            startTime: Date.now(),
-            controller,
-            cleanup: () => {
-                controller.abort();
-                research.status = 'failed';
-            }
-        };
+        // const research = await db.getResearchData(report_id);
+        // if (!research) {
+        //     throw new Error('Research not found');
+        // }
 
-        // Notify frontend that research has started
-        await wsManager.handleResearchStart(research);
+        // Calculate if all SERP queries are complete
+        // let totalExpectedQueries = breadth;
+        // let currentBreadth = breadth;
+        // for (let depth = 2; depth <= this.depth; depth++) {
+        //     currentBreadth = Math.ceil(currentBreadth / 2);
+        //     totalExpectedQueries += (totalExpectedQueries * currentBreadth);
+        // }
+
+        // const completedQueries = research.serpQueries.filter(q =>
+        //     q.successful_scraped_websites.some(w => w.status === 'analyzed')
+        // ).length;
+
 
         try {
-            // Start deep research process
-            await deepResearch(report_id, wsManager);
+            // If SERP queries are incomplete, resume deep research
+            // if (completedQueries < totalExpectedQueries) {
+            await wsManager.handleResearchStart(report_id);
+            await deepResearch(report_id, Boolean(is_deep_research), wsManager);
+            // }
 
             // Get fresh data before report generation
             const freshResearchData = await db.getResearchData(report_id);
@@ -161,7 +166,6 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             }
 
             // Start report generation
-            research.status = 'generating';
             await wsManager.handleReportWritingStart(report_id);
 
             // Set initial report status to in-progress
@@ -191,7 +195,6 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             });
 
             // Update research status and notify frontend
-            research.status = 'complete';
             await wsManager.handleReportWritingComplete(report_id);
 
             // Return final research data
@@ -199,18 +202,17 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
         } catch (error) {
             console.error('Error in research:', error);
-            research.status = 'failed';
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
             // Set report status to failed in database
             const db = await ResearchDB.getInstance();
             await db.saveReport(report_id, {
-                title: '',
+                title: 'Report Failed',
                 sections: [],
                 citedUrls: [],
                 isVisited: false,
                 timestamp: Date.now(),
-                status: 'failed'  // Only update the status
+                status: 'failed'
             });
 
             // Notify clients about the failure
@@ -220,12 +222,7 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
                 error: 'Research failed',
                 details: errorMessage
             });
-        } finally {
-            if (research.cleanup) {
-                research.cleanup();
-            }
         }
-
     } catch (error) {
         console.error('Error in research:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -253,7 +250,7 @@ app.get('/api/reports/:id', async (req: Request, res: Response) => {
     }
 
     const db = await ResearchDB.getInstance();
-    const research = await db.getResearchData(id);
+    const research = await db.getResearchData(id) as DBSchema['researches'][number];
 
     if (!research) {
         res.status(404).json({ error: 'Research not found' });
@@ -324,8 +321,13 @@ app.delete('/api/reports/:id', async (req: Request, res: Response) => {
 
 // Clear all reports
 app.delete('/api/reports', async (req: Request, res: Response) => {
+    // Notify all the clients with empty array of active researches.
+    wsManager.clearAllActiveResearches();
+
+    // Clear all reports from the db
     const db = await ResearchDB.getInstance();
     const success = await db.clearAllReports();
+
     res.json({ success });
 });
 
@@ -346,67 +348,83 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Find last successful state
-        const lastSuccessfulState = {
-            depth: 0,
-            queryTimestamp: 0,
-            context: ''
-        };
-
-        // Sort queries by depth and rank to find the latest successful one
-        const sortedQueries = research.serpQueries.sort((a, b) =>
-            (b.depth_level - a.depth_level) || (b.query_timestamp - a.query_timestamp)
-        );
-
-        // Find last successful query and build context
-        const successfulQueries = sortedQueries.filter(q =>
-            q.successful_scraped_websites.some(w => w.status === 'analyzed')
-        );
-
-        if (successfulQueries.length > 0) {
-            const lastQuery = successfulQueries[0];
-            if (lastQuery) {  // Extra safety check
-                lastSuccessfulState.depth = lastQuery.depth_level;
-                lastSuccessfulState.queryTimestamp = lastQuery.query_timestamp;
-
-                // Build context from all successful queries up to this depth
-                lastSuccessfulState.context = research.serpQueries
-                    .filter(q => q.depth_level <= lastQuery.depth_level)
-                    .flatMap(q => q.successful_scraped_websites
-                        .filter(w => w.status === 'analyzed')
-                        .flatMap(w => w.core_content)
-                    ).join('\n');
-            }
-        }
-
-        // Calculate expected total queries based on depth and breadth
-        let totalExpectedQueries = research.breadth; // Initial depth queries
+        // Calculate if all SERP queries are complete
+        let totalExpectedQueries = research.breadth;
         let currentBreadth = research.breadth;
-
-        // Calculate for each depth level
         for (let depth = 2; depth <= research.depth; depth++) {
             currentBreadth = Math.ceil(currentBreadth / 2);
-            const queriesAtThisDepth = (totalExpectedQueries * currentBreadth);
-            totalExpectedQueries += queriesAtThisDepth;
+            totalExpectedQueries += (totalExpectedQueries * currentBreadth);
         }
 
-        // Check if research is complete
-        const currentQueries = research.serpQueries.length;
-        const canResume = currentQueries < totalExpectedQueries;
+        const completedQueries = research.serpQueries.filter(q =>
+            q.successful_scraped_websites.some(w => w.status === 'analyzed')
+        ).length;
 
-        res.json({
-            can_resume: canResume,
-            current_queries: currentQueries,
-            expected_queries: totalExpectedQueries,
-            last_successful_state: lastSuccessfulState,
-            depth: research.depth,
-            breadth: research.breadth
-        });
+
+
+        try {
+            // If SERP queries are incomplete, resume deep research
+            if (completedQueries < totalExpectedQueries) {
+                await wsManager.handleResearchStart(report_id);
+                await deepResearch(report_id, false, wsManager);
+            }
+
+            // Get fresh data and generate report
+            const freshResearchData = await db.getResearchData(report_id);
+            if (!freshResearchData) {
+                throw new Error('Research data not found when trying to generate report');
+            }
+
+            // Generate report if it failed or doesn't exist
+            if (!freshResearchData.report || freshResearchData.report.status === 'failed') {
+                await wsManager.handleReportWritingStart(report_id);
+
+                const reportWriter = new ReportWriter();
+                const report = await reportWriter.generateReport({
+                    db_research_data: freshResearchData,
+                    wsManager: wsManager
+                });
+
+                await db.saveReport(report_id, {
+                    title: report.title,
+                    sections: report.sections,
+                    citedUrls: report.citedUrls,
+                    isVisited: false,
+                    timestamp: Date.now(),
+                    status: 'completed'
+                });
+
+                await wsManager.handleReportWritingComplete(report_id);
+            }
+
+            res.json(await db.getResearchData(report_id));
+
+        } catch (error) {
+            console.error('Error in resumed research:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+            await db.saveReport(report_id, {
+                title: 'Report Failed',
+                sections: [],
+                citedUrls: [],
+                isVisited: false,
+                timestamp: Date.now(),
+                status: 'failed'
+            });
+
+            wsManager.handleResearchError(new Error(errorMessage), report_id);
+            res.status(500).json({
+                error: 'Research resume failed',
+                details: errorMessage
+            });
+        }
 
     } catch (error) {
+        console.error('Error in resume endpoint:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        wsManager.handleResearchError(new Error(errorMessage));
         res.status(500).json({
-            error: 'Failed to check resume status',
+            error: 'Resume failed',
             details: errorMessage
         });
     }

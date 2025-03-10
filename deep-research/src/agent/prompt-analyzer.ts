@@ -3,7 +3,7 @@
 // Step 2: After analyzing all the nuances of the prompt the user gives to the agent, the agent will generate very precise and specific followup questions. Keep in mind these followup questions must be only generated after understanding the user's query in very detail. The followup questions must be such that these questions must help the agent understand the user's query in even more detail. Thus making the user even more clear on what he actually wants from the deep research and what the user wants this deep research to focus on. So the agent must generate questions with the exact precision that if answered, there is no ambuigity left for the research process. There is very defined path and queries for next query generator agent to generate the queries with exact objective for each queries to do deep research on.
 // Step 3: The prompt analyzer agent will get the fixed number from user on how many followup questions the user wants to generate. The agent must generate that many followup questions and return to the user. These followup questions and answers from the user will be given to the next query generator agent to generate the queries for deep research. So it is the job of prompt analyzer agent to get as must precise and deterministic roadmap for research from the user.
 
-import { generateObject, SystemInstruction, UserPrompt } from '../ai/providers';
+import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
 import { Schema, SchemaType } from '@google/generative-ai';
 
 const FOLLOWUP_QUESTIONS_SCHEMA: Schema = {
@@ -106,7 +106,7 @@ export async function generateFollowUps({ query, numQuestions = 5 }: PromptAnaly
 
 
     try {
-        const { response } = await generateObject({
+        const { response } = await callGeminiLLM({
             system: systemInstruction,
             user: userPromptSchema,
             model: process.env.QUESTION_GENERATING_MODEL as string,

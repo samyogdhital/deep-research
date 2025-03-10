@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { deleteReport, clearAllReports } from '../db'
+import { deleteReport, clearAllReports } from '../apis'
 
 export async function deleteReportAction(id: string) {
     const success = await deleteReport(id)

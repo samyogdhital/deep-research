@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { getAllReports, getRunningResearches } from '@/lib/db';
+import { getAllReports, getRunningResearches } from '@/lib/apis';
 import ContentWrapper from './content-wrapper';
 import { ResearchData } from '@deep-research/db/schema';
 

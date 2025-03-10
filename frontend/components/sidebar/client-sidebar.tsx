@@ -68,28 +68,58 @@ export function ClientSidebar({
               isExpanded ? 'translate-x-0' : '-translate-x-full'
             }`}
       >
-        {/* Static Header */}
-        <SidebarHeader onToggle={onToggle} />
-
-        {/* Reports Section */}
-        <div className='flex-1 px-4 pt-6'>
-          <h2 className='text-sm font-medium text-gray-500 dark:text-gray-400 mb-6 px-2'>
-            Reports
-          </h2>
-
-          {/* Add OngoingResearchClient above ReportsList */}
-          <OngoingResearchClient />
-
-          <Suspense fallback={<ReportsSkeleton />}>
-            <ReportsList
-              reports={reports}
-              runningResearches={runningResearches}
-            />
-          </Suspense>
+        {/* Top Section with Fixed Buttons */}
+        <div className='flex-shrink-0 border-b dark:border-gray-700'>
+          {/* Menu and New Research Buttons */}
+          <div className='p-4 flex items-center justify-between gap-3'>
+            <button
+              onClick={onToggle}
+              className='p-2.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors
+                text-gray-700 dark:text-gray-300'
+            >
+              <Menu className='w-6 h-6' strokeWidth={2} />
+            </button>
+            <Link
+              href='/'
+              className='p-2.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors
+                text-[#007e81] dark:text-[#00a4a8]'
+            >
+              <PlusCircle className='w-6 h-6' strokeWidth={2} />
+            </Link>
+          </div>
         </div>
 
-        {/* Static Footer */}
-        <SidebarFooter theme={theme} />
+        {/* Reports Section with Scrollable Area */}
+        <div className='flex flex-col min-h-0 flex-1'>
+          {/* Reports Header */}
+          <div className='flex-shrink-0 p-4'>
+            <h2 className='text-sm font-medium text-gray-500 dark:text-gray-400'>
+              Reports
+            </h2>
+          </div>
+
+          {/* Scrollable Reports List */}
+          <div className='flex-1 overflow-y-auto'>
+            {/* Add OngoingResearchClient above ReportsList */}
+            <div className='px-4'>
+              <OngoingResearchClient />
+            </div>
+
+            <div className='px-4'>
+              <Suspense fallback={<ReportsSkeleton />}>
+                <ReportsList
+                  reports={reports}
+                  runningResearches={runningResearches}
+                />
+              </Suspense>
+            </div>
+          </div>
+
+          {/* Static Footer with Fixed Buttons */}
+          <div className='flex-shrink-0 border-t dark:border-gray-700'>
+            <SidebarFooter theme={theme} />
+          </div>
+        </div>
       </div>
     </>
   );

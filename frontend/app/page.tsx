@@ -5,6 +5,7 @@ import { TbSend2 } from 'react-icons/tb';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ArrowBigRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 // Define interfaces using backend types
 interface FollowUpQA {
@@ -25,9 +26,11 @@ interface ResearchState {
   currentResearchId?: string;
   error?: string;
   isResearchInProgress: boolean;
+  deepResearch: boolean;
 }
 
 export default function Home() {
+  const router = useRouter();
   const [state, setState] = useState<ResearchState>({
     step: 'input',
     initialPrompt: '',
@@ -36,6 +39,7 @@ export default function Home() {
     followUps_num: 1,
     followUps_QnA: [],
     isResearchInProgress: false,
+    deepResearch: false,
   });
 
   const [activeInput, setActiveInput] = useState<
@@ -80,12 +84,31 @@ export default function Home() {
         !target.closest('.trigger-button')
       ) {
         if (activeInput) {
-          const value = inputValue.trim() ? Number(inputValue) : 1;
-          if (activeInput === 'followUps') {
-            setState((prev) => ({ ...prev, followUps_num: value }));
-          } else {
-            setState((prev) => ({ ...prev, [activeInput]: value }));
-          }
+          // Ensure we have a valid number, defaulting to current value if invalid
+          const currentValue =
+            activeInput === 'followUps'
+              ? state.followUps_num
+              : state[activeInput as 'depth' | 'breadth'];
+
+          const newValue = inputValue.trim()
+            ? Math.max(
+                1,
+                Math.min(
+                  Number(inputValue),
+                  activeInput === 'followUps' ? 30 : 10
+                )
+              )
+            : currentValue;
+
+          // Update state atomically
+          setState((prev) => ({
+            ...prev,
+            [activeInput === 'followUps' ? 'followUps_num' : activeInput]:
+              newValue,
+          }));
+
+          // Reset input state
+          setInputValue(newValue.toString());
           setActiveInput(null);
         }
       }
@@ -93,32 +116,59 @@ export default function Home() {
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [activeInput, inputValue]);
+  }, [
+    activeInput,
+    inputValue,
+    state.depth,
+    state.breadth,
+    state.followUps_num,
+  ]);
+
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && activeInput) {
+      // Ensure we have a valid number, defaulting to current value if invalid
+      const currentValue =
+        activeInput === 'followUps'
+          ? state.followUps_num
+          : state[activeInput as 'depth' | 'breadth'];
+
+      const newValue = inputValue.trim()
+        ? Math.max(
+            1,
+            Math.min(Number(inputValue), activeInput === 'followUps' ? 30 : 10)
+          )
+        : currentValue;
+
+      // Update state atomically
+      setState((prev) => ({
+        ...prev,
+        [activeInput === 'followUps' ? 'followUps_num' : activeInput]: newValue,
+      }));
+
+      // Reset input state
+      setInputValue(newValue.toString());
+      setActiveInput(null);
+    }
+  };
+
+  const handleInputChange = (value: string) => {
+    // Only allow numbers and empty string
+    if (value === '' || /^\d+$/.test(value)) {
+      const numValue = value === '' ? -1 : Number(value);
+      const max = activeInput === 'followUps' ? 30 : 10;
+
+      // Allow empty string for typing, but enforce range for numbers
+      if (value === '' || (numValue >= 1 && numValue <= max)) {
+        setInputValue(value);
+      }
+    }
+  };
 
   const handleInputClick = (type: 'depth' | 'breadth' | 'followUps') => {
     const currentValue =
       type === 'followUps' ? state.followUps_num : state[type];
     setInputValue(currentValue.toString());
     setActiveInput(type);
-  };
-
-  const handleInputChange = (value: string) => {
-    const max = activeInput === 'followUps' ? 30 : 10;
-    if (value === '' || (Number(value) >= 1 && Number(value) <= max)) {
-      setInputValue(value);
-    }
-  };
-
-  const handleInputKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && activeInput) {
-      const value = inputValue.trim() ? Number(inputValue) : 1;
-      if (activeInput === 'followUps') {
-        setState((prev) => ({ ...prev, followUps_num: value }));
-      } else {
-        setState((prev) => ({ ...prev, [activeInput]: value }));
-      }
-      setActiveInput(null);
-    }
   };
 
   const handleInitialSubmit = async () => {
@@ -199,17 +249,14 @@ export default function Home() {
           followUps_num: state.followUps_num,
           followUpAnswers,
           report_id: state.currentResearchId,
+          is_deep_research: state.deepResearch,
         }),
       }).catch((error) => {
         console.error('Error starting research:', error);
       });
 
       // Immediately redirect to realtime page
-      console.log(
-        'Redirecting to realtime page with report ID:',
-        state.currentResearchId
-      );
-      window.location.href = `/realtime/${state.currentResearchId}`;
+      router.push(`/realtime/${state.currentResearchId}`);
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -366,6 +413,26 @@ export default function Home() {
                         />
                       </div>
                     )}
+                  </div>
+
+                  <div className='relative'>
+                    <Button
+                      title='Deep Research'
+                      variant='outline'
+                      onClick={() =>
+                        setState((prev) => ({
+                          ...prev,
+                          deepResearch: !prev.deepResearch,
+                        }))
+                      }
+                      className={cn(
+                        'trigger-button dark:bg-[#272828] dark:text-gray-300 dark:hover:bg-[#161818] dark:border-gray-600',
+                        state.deepResearch &&
+                          'bg-[#3b82f6] text-white hover:bg-[#2563eb] dark:bg-[#3b82f6] dark:text-white dark:hover:bg-[#2563eb] dark:border-[#3b82f6]'
+                      )}
+                    >
+                      Deep
+                    </Button>
                   </div>
                 </div>
 

@@ -47,13 +47,15 @@ class GeminiProvider implements AIProvider {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({
           ...params,
-          model: params.model || "gemini-2.0-flash",
+          model: params.model,
           systemInstruction: params.system,
           generationConfig: {
-            ...params.generationConfig,
             responseMimeType: "application/json",
+            temperature: 0.5,
+            ...params.generationConfig,
           },
           safetySettings: [
+
             {
               category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
               threshold: HarmBlockThreshold.BLOCK_NONE,
@@ -70,6 +72,14 @@ class GeminiProvider implements AIProvider {
               category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
               threshold: HarmBlockThreshold.BLOCK_NONE,
             },
+            {
+              category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            // {
+            //   category: HarmCategory.HARM_CATEGORY_UNSPECIFIED,
+            //   threshold: HarmBlockThreshold.BLOCK_NONE,
+            // },
           ],
         });
 
@@ -155,5 +165,5 @@ queue.on('completed', (result: GenerateContentResult) => {
 });
 
 const provider = ModelProvider.getInstance().getCurrentProvider();
-export const generateObject = (params: GenerateObjectParams) =>
+export const callGeminiLLM = (params: GenerateObjectParams) =>
   queue.add(() => provider.generateObject(params)) as Promise<GenerateContentResult>;

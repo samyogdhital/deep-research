@@ -44,7 +44,7 @@ export async function getAllReports(): Promise<ResearchData[]> {
 }
 
 export async function updateReportTitle(id: string, title: string) {
-    const response = await fetch(`${process.env.API_BASE_URL}/api/reports/${id}/title`, {
+    const response = await fetch(`${process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL}/api/reports/${id}/title`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title })

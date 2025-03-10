@@ -1,4 +1,4 @@
-import { DBSchema } from './db';
+import { DBSchema } from './db/db';
 import { WebSocketManager } from './websocket';
 
 export interface ScrapedSourceInfo {

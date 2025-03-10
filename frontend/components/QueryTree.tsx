@@ -1,11 +1,8 @@
-import { useState } from 'react';
 import type { SerpQuery } from '@deep-research/db/schema';
 import { cn } from '@/lib/utils';
-import { Sheet } from '@/components/ui/sheet';
-import { QuerySheet } from '@/components/QuerySheet';
-import { BsCircle, BsCheckCircleFill } from 'react-icons/bs';
+import { BsCheckCircleFill } from 'react-icons/bs';
+import { RxCrossCircled } from 'react-icons/rx';
 import { CgSpinner } from 'react-icons/cg';
-import { DBSchema } from '@deep-research/db';
 
 interface QueryNode {
   id: number;
@@ -153,15 +150,8 @@ export function QueryTree({
     (maxDepth + 1) * LEVEL_HEIGHT + SVG_PADDING + REPORT_NODE_MARGIN;
 
   // Get report node status info
-  const getReportNodeInfo = () => {
-    switch (reportStatus) {
-      case 'in-progress':
-        return {
-          title: 'Writing Report...',
-          icon: <CgSpinner className='w-6 h-6 animate-spin' />,
-          className:
-            'bg-orange-500 text-white cursor-wait transition-all duration-300',
-        };
+  const getReportInfo = (status: string) => {
+    switch (status) {
       case 'completed':
         return {
           title: 'Report Generated',
@@ -169,12 +159,18 @@ export function QueryTree({
           className:
             'bg-green-500 text-white cursor-pointer hover:bg-green-600 transition-all duration-300',
         };
+      case 'in-progress':
+        return {
+          title: 'Report Generating',
+          icon: <CgSpinner className='w-6 h-6 animate-spin' />,
+          className: 'bg-orange-500/80 text-white',
+        };
       case 'failed':
         return {
+          icon: <RxCrossCircled className='w-5 h-5' />,
           title: 'Report Failed',
-          icon: <BsCircle className='w-5 h-5' />,
           className:
-            'bg-red-500 text-white cursor-not-allowed transition-all duration-300',
+            'text-red-600 dark:text-red-500 bg-red-50 dark:bg-red-500/10',
         };
       default:
         return {
@@ -186,7 +182,7 @@ export function QueryTree({
     }
   };
 
-  const reportInfo = getReportNodeInfo();
+  const reportInfo = getReportInfo(reportStatus);
 
   // Get leaf nodes (nodes without children)
   const leafNodes = nodes.filter(
@@ -292,7 +288,7 @@ export function QueryTree({
               }}
             >
               {reportInfo.icon}
-              <span>{reportInfo.title}</span>
+              <span className='text-base'>{reportInfo.title}</span>
             </div>
           </foreignObject>
         </g>

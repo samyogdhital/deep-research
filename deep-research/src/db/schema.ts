@@ -1,6 +1,6 @@
 // Schema types for the deep research database
 
-import { DBSchema } from '.';
+import { DBSchema } from './db';
 
 export type FollowUpQnA = DBSchema['researches'][number]['followUps_QnA'][number]
 

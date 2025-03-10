@@ -58,7 +58,7 @@ export function SidebarFooter({ theme: initialTheme }: { theme: string }) {
   return (
     <div className='mt-auto'>
       {/* Clear All button */}
-      <div className='p-4 border-t dark:border-gray-700'>
+      <div className='p-4'>
         <Button
           variant='ghost'
           className='w-full justify-start px-2 gap-2 font-normal text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10'
