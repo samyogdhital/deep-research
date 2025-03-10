@@ -21,12 +21,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { updateReportTitle } from '@/lib/apis';
 import { deleteReportAction } from '@/lib/server-actions/reports';
-import { useResearchStore } from '@/lib/research-store';
 import type { ResearchData } from '@deep-research/db/schema';
 import { DBSchema } from '@deep-research/db/db';
 
 const truncate = (str: string): string => {
-  // if (!str) return 'Untitled Research';
   return str.length > 24 ? str.slice(0, 26) + '...' : str;
 };
 
