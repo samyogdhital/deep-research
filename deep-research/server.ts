@@ -41,7 +41,7 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
         const report_id = await db.initializeResearch(prompt, 1, 1, followupQuestions);
 
         // Generate follow-up questions
-        const questions = await generateFollowUps({
+        const { questions, title: reportTitle } = await generateFollowUps({
             query: prompt,
             numQuestions: followupQuestions
         });
@@ -54,6 +54,10 @@ app.post('/api/research/questions', async (req: Request, res: Response): Promise
                 answer: ''
             });
         }
+
+        // Save the report title
+        console.log("🔃🔃", `Report Title: ${reportTitle}`);
+        await db.addReportTitle(report_id, reportTitle);
 
         // Return both questions and report_id
         res.json({ questions, report_id });
@@ -170,25 +174,27 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
             // Set initial report status to in-progress
             await db.saveReport(report_id, {
-                title: '',
-                sections: [],
-                citedUrls: [],
+                title: freshResearchData.report?.title || '',
+                // sections: [],
+                // citedUrls: [],
+                content: '',
                 isVisited: false,
                 timestamp: Date.now(),
                 status: 'in-progress'
             });
 
             const reportWriter = new ReportWriter();
-            const report = await reportWriter.generateReport({
+            const reportContent = await reportWriter.generateReport({
                 db_research_data: freshResearchData,
                 wsManager: wsManager
             });
 
             // Save completed report
             await db.saveReport(report_id, {
-                title: report.title,
-                sections: report.sections,
-                citedUrls: report.citedUrls,
+                title: freshResearchData.report?.title || '',
+                // sections: report.sections,
+                // citedUrls: report.citedUrls,
+                content: reportContent,
                 isVisited: false,
                 timestamp: Date.now(),
                 status: 'completed'
@@ -207,9 +213,10 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
             // Set report status to failed in database
             const db = await ResearchDB.getInstance();
             await db.saveReport(report_id, {
-                title: 'Report Failed',
-                sections: [],
-                citedUrls: [],
+                title: (await db.getResearchData(report_id))?.report.title || 'Failed Report',
+                // sections: [],
+                // citedUrls: [],
+                content: '',
                 isVisited: false,
                 timestamp: Date.now(),
                 status: 'failed'
@@ -386,9 +393,10 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
                 });
 
                 await db.saveReport(report_id, {
-                    title: report.title,
-                    sections: report.sections,
-                    citedUrls: report.citedUrls,
+                    title: freshResearchData.report?.title || '',
+                    // sections: report.sections,
+                    // citedUrls: report.citedUrls,
+                    content: report,
                     isVisited: false,
                     timestamp: Date.now(),
                     status: 'completed'
@@ -404,9 +412,10 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
             await db.saveReport(report_id, {
-                title: 'Report Failed',
-                sections: [],
-                citedUrls: [],
+                title: (await db.getResearchData(report_id))?.report.title || 'Failed Report',
+                //          sections: [],
+                // citedUrls: [],
+                content: '',
                 isVisited: false,
                 timestamp: Date.now(),
                 status: 'failed'

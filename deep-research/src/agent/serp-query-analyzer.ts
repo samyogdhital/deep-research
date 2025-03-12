@@ -1,7 +1,8 @@
 import { Part, Schema, SchemaType } from '@google/generative-ai';
-import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
+import { callGeminiLLM, SystemInstruction, ultimateModel, UserPrompt } from '../ai/providers';
 import { DBSchema } from '../db/db';
 import { ScrapedContent } from '../types';
+import { z } from 'zod';
 
 type SerpQueryAnalysis = DBSchema['researches'][number]['serpQueries'][number];
 
@@ -63,11 +64,7 @@ export class SerpQueryAnalyzer {
                 required: ["url", "title", "description", "relevance_score", "is_objective_met", "core_content", "facts_figures"]
             }
         };
-
-        const systemInstruction: SystemInstruction = {
-            role: 'system',
-            parts: [{
-                text: `
+        const systemPrompt = `
 You are the SERP Query Analysis Agent. Your task is to analyze multiple website contents simultaneously in relation to a specific search query and its objective. You must extract all relevant information from each website and structure it according to our database schema.
 
 Follow these strict guidelines:
@@ -93,8 +90,7 @@ Remember:
 
 Current Date: ${new Date().toISOString()}
 `
-            }]
-        };
+
 
         // Format all website contents into a single string for analysis
         const formattedContent = contents.map(content => `
@@ -104,8 +100,7 @@ ${content.markdown}
 -------------------
 `).join('\n');
 
-        const userPrompt: Part[] = [{
-            text: `
+        const userPrompt = `
 Analyze ALL of the following websites' content in relation to this search query and objective. You must analyze EVERY website and include it in your response.
 
 QUERY: "${query}"
@@ -140,25 +135,45 @@ Return an ARRAY where each element represents one website's analysis, following 
 
 IMPORTANT: Your response MUST include an analysis for EVERY website in the input, even if some seem less relevant.
 `
-        }];
-
-        const userPromptSchema: UserPrompt = {
-            contents: [{ role: 'user', parts: userPrompt }],
-        };
+        // const systemInstruction: SystemInstruction = {
+        //     role: 'system',
+        //     parts: [{
+        //         text: systemPrompt
+        //     }]
+        // };
+        // const userPromptSchema: UserPrompt = {
+        //     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        // };
 
         try {
-            const { response } = await callGeminiLLM({
-                system: systemInstruction,
-                user: userPromptSchema,
-                model: process.env.SERP_QUERY_ANALYZING_MODEL as string,
-                generationConfig: {
-                    temperature: 0.1,
-                    responseSchema: responseSchema
-                }
-            });
+            // const { response } = await callGeminiLLM({
+            //     system: systemInstruction,
+            //     user: userPromptSchema,
+            //     model: process.env.SERP_QUERY_ANALYZING_MODEL as string,
+            //     generationConfig: {
+            //         temperature: 0.1,
+            //         responseSchema: responseSchema
+            //     }
+            // });
+
+            const response = await ultimateModel({
+                system: systemPrompt,
+                user: userPrompt,
+                // we need that above resposneschema in zod form and we need to define each one of them below in zod
+                schema: z.array(z.object({
+                    url: z.string().describe("The URL of the website being analyzed"),
+                    title: z.string().describe("The title of the website"),
+                    description: z.string().describe("A brief description of the website content"),
+                    relevance_score: z.number().describe("A score between 0 and 10 indicating how relevant the content is to the objective"),
+                    is_objective_met: z.boolean().describe("Whether this website's content directly addresses the research objective"),
+                    core_content: z.array(z.string()).describe("Array of highly technical, relevant information points extracted from the website"),
+                    facts_figures: z.array(z.string()).describe("Array of direct quotes, statistics, and factual evidence from the website")
+                }))
+            })
+
 
             // Parse the LLM response
-            const websiteAnalyses = JSON.parse(response.text()) as Array<{
+            const websiteAnalyses = response.object as Array<{
                 url: string;
                 title: string;
                 description: string;

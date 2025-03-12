@@ -1,38 +1,12 @@
 'use client';
 
-import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { Button } from '@/components/ui/button';
-import { Download } from 'lucide-react';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
 import { type ResearchData } from '@deep-research/db/schema';
 import type { Components } from 'react-markdown';
 import { formatDistanceToNow } from 'date-fns';
-
-interface Report {
-  title: string;
-  report_id: string;
-  sections: Array<{
-    rank: number;
-    sectionHeading: string;
-    content: string;
-  }>;
-  citedUrls: Array<{
-    rank: number;
-    url: string;
-    title: string;
-    oneValueablePoint: string;
-  }>;
-  isVisited?: boolean;
-  timestamp?: string;
-}
 
 interface ReportContentProps {
   initialData: ResearchData;
@@ -40,9 +14,7 @@ interface ReportContentProps {
 }
 
 export function ReportContent({ initialData, reportId }: ReportContentProps) {
-  const [researchData, setResearchData] = useState(initialData);
-
-  const { report } = researchData;
+  const { report } = initialData;
 
   if (!report) return null;
 
@@ -98,9 +70,10 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
     a: ({ children, href }) => {
       // Check if this is a citation reference
       const isCitation = href?.startsWith('#citation-');
-      const citationNumber = isCitation ? href.replace('#citation-', '') : null;
+      const citationNumber =
+        isCitation && href ? href.replace('#citation-', '') : null;
 
-      if (isCitation) {
+      if (isCitation && href) {
         return (
           <button
             onClick={(e) => {
@@ -193,32 +166,6 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
     ),
   };
 
-  const downloadReport = () => {
-    // Combine all sections into markdown
-    const markdown =
-      `# ${report.title}\n\n` +
-      report.sections
-        .map((section) => `## ${section.sectionHeading}\n\n${section.content}`)
-        .join('\n\n') +
-      '\n\n## Sources\n\n' +
-      report.citedUrls
-        .map(
-          (url) =>
-            `${url.rank}. [${url.title}](${url.url})\n   ${url.oneValueablePoint}`
-        )
-        .join('\n\n');
-
-    const blob = new Blob([markdown], { type: 'text/markdown' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${report.title.toLowerCase().replace(/\s+/g, '-')}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
-
   return (
     <div className='min-h-screen bg-white dark:bg-bg_color text-gray-900 dark:text-gray-50'>
       <div className='container mx-auto px-4 py-12 max-w-4xl'>
@@ -248,75 +195,15 @@ export function ReportContent({ initialData, reportId }: ReportContentProps) {
           </div>
         </div>
 
-        {/* Report Sections */}
-        <div className='space-y-12 mb-12 border-b border-gray-200 dark:border-gray-700 pb-12'>
-          {report.sections.map((section) => (
-            <div
-              key={section.rank}
-              className='prose prose-lg dark:prose-invert max-w-none'
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={components}
-              >
-                {`# ${section.sectionHeading}\n\n${section.content}`}
-              </ReactMarkdown>
-            </div>
-          ))}
-        </div>
-
-        {/* Sources Accordion */}
-        <div className='mt-12'>
-          <Accordion type='single' collapsible className='w-full'>
-            <AccordionItem
-              value='sources'
-              className='rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden'
-            >
-              <AccordionTrigger className='text-xl font-semibold text-gray-900 dark:text-gray-300 hover:no-underline px-4 py-3'>
-                Sources
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className='space-y-2 p-4'>
-                  {report.citedUrls
-                    .sort((a, b) => a.rank - b.rank)
-                    .map((citation) => (
-                      <div
-                        key={citation.rank}
-                        id={`citation-${citation.rank}`}
-                        className='p-3 flex items-start gap-3'
-                        style={{ scrollMarginTop: '2rem' }}
-                      >
-                        <span className='inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-300 text-sm font-medium shrink-0'>
-                          {citation.rank}
-                        </span>
-                        <div className='flex-1 min-w-0'>
-                          <a
-                            href={citation.url}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                            className='text-sm text-black hover:text-gray-600 dark:text-gray-300 dark:hover:text-gray-400 truncate block transition-colors'
-                          >
-                            {citation.url}
-                          </a>
-                          <p className='text-sm text-gray-700 dark:text-gray-400 mt-1 line-clamp-2'>
-                            {citation.oneValueablePoint}
-                          </p>
-                          <div className='flex items-center mt-1'>
-                            <div className='flex items-center text-xs text-gray-600 dark:text-gray-500 gap-1'>
-                              <span>Relevancy:</span>
-                              <span className='font-medium'>
-                                {citation.rank}/10
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+        {/* Report Content */}
+        <div className='prose prose-lg dark:prose-invert max-w-none mb-12'>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={components}
+          >
+            {report.content}
+          </ReactMarkdown>
         </div>
       </div>
       <style jsx global>{`

@@ -40,20 +40,21 @@ export interface DBSchema {
                 stage: 'failed';
             }>;
         }>;
-        report?: {
-            title: string;
-            status: "in-progress" | "completed" | "failed";
-            sections: Array<{
-                rank: number;
-                sectionHeading: string;
-                content: string;
-            }>;
-            citedUrls: Array<{
-                rank: number;
-                url: string;
-                title: string;
-                oneValueablePoint: string;
-            }>;
+        report: {
+            title: string; // title will be coming from initial prompt analyzer model ok?
+            status: "not-started" | "in-progress" | "completed" | "failed";
+            // sections: Array<{
+            //     rank: number;
+            //     sectionHeading: string;
+            //     content: string;
+            // }>;
+            // citedUrls: Array<{
+            //     rank: number;
+            //     url: string;
+            //     title: string;
+            //     oneValueablePoint: string;
+            // }>;
+            content: string;
             isVisited: boolean;
             timestamp: number;
         };
@@ -117,6 +118,13 @@ class ResearchDB {
             followUps_num,
             followUps_QnA: [],
             serpQueries: [],
+            report: {
+                title: '',
+                status: 'not-started' as const,
+                content: '',
+                isVisited: false,
+                timestamp: Date.now()
+            }
         };
 
         this.db.data.researches.push(newResearch);
@@ -129,6 +137,15 @@ class ResearchDB {
         const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
         research.followUps_QnA.push(followUpQnA);
+        await this.db.write();
+        return true;
+    }
+
+    async addReportTitle(report_id: string, reportTitle: string): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
+        if (!research) return false;
+        research.report!.title = reportTitle;
         await this.db.write();
         return true;
     }
@@ -200,11 +217,6 @@ class ResearchDB {
     async getAllReports(): Promise<DBSchema['researches']> {
         await this.db.read();
         return this.db.data.researches
-        // .filter(r => r.report)
-        // .map(r => ({
-        //     report_id: r.report_id,
-        //     report: r.report
-        // }));
     }
 
     async saveReport(report_id: string, reportData: DBSchema['researches'][number]['report']): Promise<string> {

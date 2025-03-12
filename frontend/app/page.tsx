@@ -84,30 +84,27 @@ export default function Home() {
         !target.closest('.trigger-button')
       ) {
         if (activeInput) {
-          // Ensure we have a valid number, defaulting to current value if invalid
+          // Get the current value based on which input is active
           const currentValue =
             activeInput === 'followUps'
               ? state.followUps_num
-              : state[activeInput as 'depth' | 'breadth'];
+              : state[activeInput];
 
-          const newValue = inputValue.trim()
-            ? Math.max(
-                1,
-                Math.min(
-                  Number(inputValue),
-                  activeInput === 'followUps' ? 30 : 10
-                )
-              )
+          // Parse the input value, defaulting to current value if invalid
+          const numValue = inputValue.trim()
+            ? parseInt(inputValue, 10)
             : currentValue;
 
-          // Update state atomically
+          // Ensure the value is within bounds
+          const maxValue = activeInput === 'followUps' ? 30 : 10;
+          const newValue = Math.max(1, Math.min(numValue, maxValue));
+
+          // Update both states
           setState((prev) => ({
             ...prev,
             [activeInput === 'followUps' ? 'followUps_num' : activeInput]:
               newValue,
           }));
-
-          // Reset input state
           setInputValue(newValue.toString());
           setActiveInput(null);
         }

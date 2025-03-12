@@ -7,7 +7,8 @@
     "dev": "tsx watch --env-file=.env.local server.ts",
     "debug": "tsx watch --env-file=.env.local server.ts",
     "build": "tsc",
-    "start": "node --env-file=.env.prod dist/server.js"
+    "start": "node --env-file=.env.prod dist/server.js",
+    "test": "tsx src/agent/website-analyzer.ts"
   },
   "author": "",
   "license": "ISC",
@@ -22,15 +23,23 @@
     "typescript": "^5.7.3"
   },
   "dependencies": {
+    "@ai-sdk/cerebras": "^0.1.13",
+    "@ai-sdk/cohere": "^1.1.13",
+    "@ai-sdk/google": "^1.1.20",
+    "@ai-sdk/groq": "^1.1.12",
+    "@ai-sdk/mistral": "^1.1.15",
     "@google/generative-ai": "^0.24.0",
     "@mendable/firecrawl-js": "^1.16.0",
+    "@mistralai/mistralai": "^1.5.1",
+    "ai": "^4.1.54",
+    "cohere-ai": "^7.16.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "gpt-tokenizer": "^2.8.1",
+    "groq-sdk": "^0.15.0",
     "js-tiktoken": "^1.0.17",
     "lodash-es": "^4.17.21",
     "lowdb": "^7.0.1",
-    "p-limit": "^6.2.0",
     "p-queue": "^8.1.0",
     "socket.io": "^4.8.1",
     "zod": "^3.24.1"

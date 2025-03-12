@@ -6,25 +6,25 @@
 
 // Step 3: Report from middle-report-agent is passed here along with all the learnings and conclusions we got and made during the deep research process. The report from both of these initial and middle report agent is also passed here. The user's initial query is also passed here and made sure that this final report is not missing any important infomration if it is present on the internet answering the precise question the user has asked.
 
-import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
-import { Schema, SchemaType } from '@google/generative-ai';
+import { SystemInstruction, vercelGemini } from '../ai/providers';
 import { encode } from 'gpt-tokenizer';
 import { DBSchema } from '../db/db';
 import { WebSocketManager } from '../websocket';
-export interface ReportResult {
-    title: string;
-    sections: Array<{
-        rank: number;
-        sectionHeading: string;
-        content: string;
-    }>;
-    citedUrls: Array<{
-        rank: number;
-        url: string;
-        title: string;
-        oneValueablePoint: string;
-    }>;
-}
+import { z } from 'zod';
+// export interface ReportResult {
+//     title: string;
+//     sections: Array<{
+//         rank: number;
+//         sectionHeading: string;
+//         content: string;
+//     }>;
+//     citedUrls: Array<{
+//         rank: number;
+//         url: string;
+//         title: string;
+//         oneValueablePoint: string;
+//     }>;
+// }
 
 export class ReportWriter {
     constructor() { }
@@ -32,7 +32,10 @@ export class ReportWriter {
     async generateReport(params: {
         db_research_data: DBResearchData,
         wsManager: WebSocketManager
-    }): Promise<ReportResult> {
+    }): Promise<
+        string
+    // ReportResult
+    > {
 
         const { db_research_data, wsManager } = params;
 
@@ -47,182 +50,193 @@ export class ReportWriter {
         // This schema is absolutely necessary for pushing data to database for the report section.
         // Every field is required to ensure Gemini doesn't miss any fields in the response.
         // The response must exactly match the database Report schema structure.
-        const reportSchema: Schema = {
-            type: SchemaType.OBJECT,
-            properties: {
-                title: {
-                    type: SchemaType.STRING,
-                    description: "Title of this report in 5-7 words that summarizes this entire report."
-                },
-                sections: {
-                    type: SchemaType.ARRAY,
-                    description: "Array of individual sections in the report. Each section must answer a specific question of the user in very detailed. Make sure each section is as much technically rich as possible.",
-                    items: {
-                        type: SchemaType.OBJECT,
-                        properties: {
-                            rank: {
-                                type: SchemaType.NUMBER,
-                                description: "The most important section much be rank 1 showing the important of the section in entire report. And this way we can show that section at first in the frontend. The most least important section must be rank last. Make sure these sections start from 1 to N."
-                            },
-                            sectionHeading: {
-                                type: SchemaType.STRING,
-                                description: "Title of the section in 3-5 words in markdown heading format. You must generate `sectionHeading` with `##` or `###` before the heading to maintain the markdown format."
-                            },
-                            content: {
-                                type: SchemaType.STRING,
-                                description: "This is the main content of the section. Make sure you use the full markdown feature to give this content. Since we already have section heading, you can directly start the main content. This content must be as much technically descriptive as possible. Feel free to go as much deep and as much detailed as possible. Make sure you are answer the exact question the user is asking within this section by being highly technical and detailed. Feel free to use ordered list, unordered list, bold, italic, code, etc. to make the content more engaging and detailed. Feel free to generate tables, diagrams, charts, etc. if the report demands. Keep in mind, do not hallucinate. What ever you write must be coming from a source. Don't use your own memory. Make sure the cite every sentence with exact urls whose content were used to write this section. Make sure the citations are numbered by their rank in citedUrls array. For citations use this exact format [rank_number_of_this_cited_url](https://example.com)."
-                            }
-                        },
-                        required: ["rank", "sectionHeading", "content"]
-                    }
-                },
-                citedUrls: {
-                    type: SchemaType.ARRAY,
-                    description: "Array of cited URLs used in the report. All the full urls that were considered to write this full report. All the urls that were used to write every sections of the report. Don't make the urls yourself. Whatever url you give in this array, it must be provided to you and must be used to write the content of the sections.",
-                    items: {
-                        type: SchemaType.OBJECT,
-                        properties: {
-                            rank: {
-                                type: SchemaType.NUMBER,
-                                description: "Url with 1 rank is the url with most citations in the entire report and multiple of these sections. Rank N will be the last url that is cited the least 1 or more than 1 in the entire report. Make sure to rank these urls accroding to their gravitas in the report."
-                            },
-                            url: {
-                                type: SchemaType.STRING,
-                                description: "Full url of the website that was used to write the content of the section."
-                            },
-                            title: {
-                                type: SchemaType.STRING,
-                                description: "Title of the website that was used to write the content of the section."
-                            },
-                            oneValueablePoint: {
-                                type: SchemaType.STRING,
-                                description: "One most important and highly valuable fact or figure from this source that meets our objective which shows the level of knowledge contribution of this source to the report."
-                            }
-                        },
-                        required: ["rank", "url", "title", "oneValueablePoint"]
-                    }
-                }
-            },
-            required: ["title", "sections", "citedUrls"]
-        };
+        // const reportSchema: Schema = {
+        //     type: SchemaType.OBJECT,
+        //     properties: {
+        //         title: {
+        //             type: SchemaType.STRING,
+        //             description: "Title of this report in 5-7 words that summarizes this entire report."
+        //         },
+        //         sections: {
+        //             type: SchemaType.ARRAY,
+        //             description: "Array of individual sections in the report. Each section must answer a specific question of the user in very detailed. Make sure each section is as much technically rich as possible.",
+        //             items: {
+        //                 type: SchemaType.OBJECT,
+        //                 properties: {
+        //                     rank: {
+        //                         type: SchemaType.NUMBER,
+        //                         description: "The most important section must be rank 1 showing the importance of the section in entire report. The least important section must be rank last. Make sure these sections start from 1 to N."
+        //                     },
+        //                     sectionHeading: {
+        //                         type: SchemaType.STRING,
+        //                         description: "Title of the section in 3-5 words in markdown heading format. Must generate with `##` or `###` before the heading to maintain the markdown format."
+        //                     },
+        //                     content: {
+        //                         type: SchemaType.STRING,
+        //                         description: "The main content of the section. Must use full markdown features. Content must be technically descriptive and detailed. Must answer the exact user question with technical depth. Use ordered lists, unordered lists, bold, italic, code, etc. Every sentence must be cited with [rank](URL) format."
+        //                     }
+        //                 },
+        //                 required: ["rank", "sectionHeading", "content"]
+        //             }
+        //         },
+        //         citedUrls: {
+        //             type: SchemaType.ARRAY,
+        //             description: "Array of cited URLs used in the report. All the full urls that were considered to write this full report. All the urls that were used to write every sections of the report. Don't make the urls yourself. Whatever url you give in this array, it must be provided to you and must be used to write the content of the sections.",
+        //             items: {
+        //                 type: SchemaType.OBJECT,
+        //                 properties: {
+        //                     rank: {
+        //                         type: SchemaType.NUMBER,
+        //                         description: "Url with rank 1 is the most cited url in the report. Rank N is the least cited url. Must rank according to citation frequency."
+        //                     },
+        //                     url: {
+        //                         type: SchemaType.STRING,
+        //                         description: "Full url of the website used to write the content."
+        //                     },
+        //                     title: {
+        //                         type: SchemaType.STRING,
+        //                         description: "Title of the website used."
+        //                     },
+        //                     oneValueablePoint: {
+        //                         type: SchemaType.STRING,
+        //                         description: "One most important and highly valuable fact or figure from this source that meets our objective."
+        //                     }
+        //                 },
+        //                 required: ["rank", "url", "title", "oneValueablePoint"]
+        //             }
+        //         }
+        //     },
+        //     required: ["title", "sections", "citedUrls"]
+        // };
 
+        const systemPrompt = `
+    ## Main Answer
 
-        const systemInstruction: SystemInstruction = {
-            role: 'system',
-            parts: [
-                {
-                    text: `
-    You are the Technical Research Report Writing Agent, an advanced AI designed to synthesize extensive research data into a PhD-level technical report. Your task is to produce a highly detailed, technically dense, and fully cited report that reflects the depth and breadth of the provided research context. Adhere to the following strict guidelines:
+    You are the **Technical Research Report Writing Agent**, an advanced AI designed to synthesize extensive research data into a PhD-level technical report. Your task is to produce a highly detailed, technically dense, and fully cited report that reflects the depth and breadth of the provided research context.
 
-    ### Core Responsibilities
-    - **Synthesize Research Data**: Extract and integrate all critical information from the provided context, including the user's initial prompt, follow-up Q&A, SERP queries, and scraped website content.
-    - **Scientific Rigor**: Treat this as a scientific research paper, ensuring every claim is factual, cited, and free of assumptions or personal opinions.
-    - **Source Fidelity**: Use only the data and URLs provided in the context; do not rely on external knowledge or hallucinate content.
+    ## Core Responsibilities
+    - Extract and integrate critical information from user's initial prompt, follow-up Q&A, SERP queries, and scraped website content
+    - Ensure every claim is factual and cited
+    - Use only provided data and URLs
 
-    ### Technical Depth
-    - Write for a PhD scholar, employing advanced, field-specific terminology and exhaustive explanations.
-    - Include all relevant facts, figures, technical specifications, and logical arguments extracted from the context.
-    - Avoid simplification; prioritize technical richness and precision over accessibility.
+    ## Citation Requirements
+    - Every sentence must end with [rank](URL)
+    - Multiple citations shown as [1](URL1), [2](URL2)
+    - Track citation frequency for URL ranking
 
-    ### Citation Rules
-    - **Mandatory Citations**: Every sentence must end with a citation in the format \`[rank](URL)\`, where \`rank\` corresponds to the URL's position in the \`citedUrls\` array (1 being the most cited).
-    - **Multiple Citations**: For sentences drawing from multiple sources, list citations sequentially, separated by commas: \`[1](URL1), [2](URL2), [3](URL3)\`.
-    - **Citation Tracking**: Monitor citation frequency across the report to assign accurate ranks in the \`citedUrls\` array.
+    ## Section Requirements
+    - Minimum 10 sections
+    - Each section must have a clear heading and comprehensive content
+    - Content must be technically descriptive with citations
 
-    ### Structural Requirements
-    - **Minimum Sections**: Organize the report into at least 10 sections, each addressing a specific aspect of the user's initial prompt or follow-up questions.
-    - **Section Detail**: Ensure each section is overwhelmingly long, technically rich, and comprehensive, with a clear \`rank\` (1 being most important) and markdown heading (e.g., \`## Section Title\` or \`### Subsection Title\`).
-    - **Flexibility**: Generate additional sections beyond 10 if the content demands it, maintaining depth and detail throughout.
+    ## Content Guidelines
+    - Focus on technical depth and accuracy
+    - Maintain professional academic tone
+    - Synthesize information across sources
+    - Support all claims with citations
+    - Present findings in clear logical flow`
 
-    ### Markdown Usage
-    - Write all content in valid markdown, ensuring proper headings, line breaks (\`\\n\`), and formatting.
-    - Leverage markdown features extensively:
-    - Ordered lists (\`1.\`) and unordered lists (\` - \`) for structured breakdowns.
-    - **Bold**, *italic*, and \`code\` formatting for emphasis and technical terms.
-    - Blockquotes (\`> \`) for highlighting key insights or findings.
-
-    ### Tables
-    - Use markdown tables for comparisons or structured data, adhering to this format:
-    
-    | Column Heading 1 | Column Heading 2|\n
-    | - | - |\n
-    | Row 1 first element | Row 1 second element |\n
-    | Row 2 first element | Row 2 second element |\n
-
-    - Include citations in every cell (except headers), following the \`[rank](URL)\` format.
-    
-    ### Cited URLs Array
-    - Compile a \`citedUrls\` array ranked by citation frequency and importance, with each entry including:
-    - \`rank\`: Numerical rank (1 for most cited).
-    - \`url\`: Exact URL from the context.
-    - \`title\`: Website title.
-    - \`oneValueablePoint\`: A key fact or figure from the source contributing to the report.
-
-    ### Output Format
-    - Encode the final report as a JSON object per the provided schema, with markdown content as escaped strings.
-    - Ensure JSON syntax is valid, with proper opening/closing of objects, arrays, and strings.
-
-    ### Comprehensiveness
-    - Address every element of the user’s initial prompt and follow-up questions with exhaustive detail.
-    - Reflect the specified depth and breadth of the research, ensuring no critical information is omitted.
-    `
-                }
-            ]
-        }
-
-
-
-        const userPrompt = [{
-            text: `
-    Generate a comprehensive, PhD-level technical report synthesizing all provided research data from the deep research process. The report must be highly detailed, technically dense, fully cited, and structured according to the JSON schema below.
+        const userPromptOnly = `
+    Generate a comprehensive, PhD-level technical report synthesizing all provided research data from the deep research process.
 
     ### Context
-    ${generateContextforReportWriterAgent(db_research_data)}
+    ${generateContextforReportWriterAgent(db_research_data)}`
+
+        // const systemInstruction: SystemInstruction = {
+        //     role: 'system',
+        //     parts: [
+        //         {
+        //             text: systemPrompt
+        //         }
+        //     ]
+        // }
 
 
-    ### Absolute Requirements
-    - **Technical Detail**: Write for a PhD scholar, using advanced terminology and in-depth explanations without simplifying jargon or concepts.
-    - **Citations**: Cite every sentence with \`[rank](URL)\`, where \`rank\` is the URL’s rank in the \`citedUrls\` array. For multiple sources, use comma-separated citations: \`[1](URL1), [2](URL2)\`.
-    - **Structure**: Generate a minimum of 10 sections, each with a ranked markdown heading (e.g., \`## Section Title\`) and extensive, technically rich content. Add more sections if necessary.
-    - **Markdown Features**: Use headings, ordered/unordered lists, bold/italic/code formatting, blockquotes, and tables. Ensure line breaks (\`\\n\`) for proper parsing.
-    - **Tables**: For comparisons or data presentation, use markdown tables with citations in each cell (except headers):
-    
-        | Column Heading 1 | Column Heading 2|\n
-        | - | - |\n
-        | Row 1 first element | Row 1 second element |\n
-        | Row 2 first element | Row 2 second element |\n
+        // const userPrompt = [{
+        //     text: userPromptOnly
+        // }]
 
-        Always, Inside every table except the heading row, make sure content inside every row's column's content give the website citations.
+        // const userPromptSchema: UserPrompt = {
+        //     contents: [{ role: 'user', parts: userPrompt }],
+        // };
 
-    - **Cited URLs**: Compile the \`citedUrls\` array with:
-    - \`rank\`: Based on citation frequency (1 for most cited).
-    - \`url\`: Exact URL from the context.
-    - \`title\`: Website title.
-    - \`oneValueablePoint\`: A key fact or figure from the source.
-    - **JSON Output**: Encode the report as a valid JSON object matching the schema, with markdown content as escaped strings.  
-            `
-        }]
+        // // const { response } = await callGeminiLLM({
+        // //     system: systemInstruction,
+        // //     user: userPromptSchema,
+        // //     model: process.env.RESEARCH_WRITING_MODEL as string,
+        // //     generationConfig: {
+        // //         responseSchema: reportSchema
+        // //     }
+        // // });
 
-        const userPromptSchema: UserPrompt = {
-            contents: [{ role: 'user', parts: userPrompt }],
-        };
-
-        const { response } = await callGeminiLLM({
-            system: systemInstruction,
-            user: userPromptSchema,
-            model: process.env.RESEARCH_WRITING_MODEL as string,
-            generationConfig: {
-                responseSchema: reportSchema
-            }
-        });
 
 
         try {
-            const content = response.text();
-            console.log("🔃🔃", `Content: ${content}`);
+
+
+            // const response = await vercelGemini({
+            //     model: process.env.RESEARCH_WRITING_MODEL as string,
+            //     system: systemPrompt,
+            //     user: userPromptOnly,
+            //     schema: z.object({
+            //         title: z.string().describe("Title of this report in 5-7 words that summarizes this entire report."),
+            //         sections: z.array(z.object({
+            //             rank: z.number().describe("The most important section must be rank 1 showing the importance of the section in entire report. The least important section must be rank last. Make sure these sections start from 1 to N."),
+            //             sectionHeading: z.string().describe("Title of the section in 3-5 words in markdown heading format. Must generate with `##` or `###` before the heading to maintain the markdown format."),
+            //             content: z.string().describe("The main content of the section. Must use full markdown features. Content must be technically descriptive and detailed. Must answer the exact user question with technical depth. Use ordered lists, unordered lists, bold, italic, code, etc. Every sentence must be cited with [rank](URL) format."),
+            //         })),
+            //         citedUrls: z.array(z.object({
+            //             rank: z.number().describe("Url with rank 1 is the most cited url in the report. Rank N is the least cited url. Must rank according to citation frequency."),
+            //             url: z.string().describe("Full url of the website used to write the content."),
+            //             title: z.string().describe("Title of the website used."),
+            //             oneValueablePoint: z.string().describe("One most important and highly valuable fact or figure from this source that meets our objective."),
+            //         })),
+            //     }),
+            //     apiKey: process.env.GOOGLE_API_KEY_10 as string,
+            //     structuredOutputs: false
+            // });
+
+            const google = createGoogleGenerativeAI({
+                apiKey: process.env.GOOGLE_API_KEY_10
+            });
+
+            const geminiModel = google(process.env.RESEARCH_WRITING_MODEL as string, {
+                safetySettings: [
+                    {
+                        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    {
+                        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    {
+                        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    {
+                        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    {
+                        category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+                        threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                ]
+            });
+
+
+            const { text } = await generateText({
+                model: geminiModel,
+                system: systemPrompt,
+                prompt: userPromptOnly
+            })
+
+            const content = text;
+
+            console.log("🔃🔃", `Content: ${text}`);
             saveData(content);
-            const result = JSON.parse(content);
-            return result;
+            return content;
         } catch (error) {
             console.log('❌❌ Report writing error:', error);
             wsManager.handleResearchError(
@@ -318,6 +332,9 @@ const generateContextforReportWriterAgent = (
 
 
 import fs from 'fs';
+import { generateText } from 'ai';
+import { HarmBlockThreshold, HarmCategory } from '@google/generative-ai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 
 // Very simple function to save data
 function saveData(data: string) {

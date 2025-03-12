@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { getReport, markReportAsVisited } from '@/lib/apis';
 import { Suspense } from 'react';
 import Loading from './loading';
-
+import ReportChat from '@/components/report-chat';
 export async function generateMetadata(props: {
   params: Promise<{ slug: string }>;
 }) {
@@ -22,8 +22,7 @@ export async function generateMetadata(props: {
   return {
     title: researchData.report.title || `Research Report - ${slug}`,
     description:
-      researchData.report.sections?.[0]?.content?.substring(0, 160) ||
-      'Research Report',
+      researchData.report.content?.substring(0, 160) || 'Research Report',
   };
 }
 
@@ -52,6 +51,7 @@ export default async function ReportPage(
     <main className='min-h-screen bg-background'>
       <Suspense fallback={<Loading />}>
         <ReportContent initialData={researchData} reportId={slug} />
+        <ReportChat />
       </Suspense>
     </main>
   );

@@ -3,9 +3,10 @@
 // Step 2: If the very precise, strategic, exact, accurate and most relevent information is found on the website, it is returned by the agent in the fixed json schema it got. If the information is not found, the agent will return nothing and pass on. (While doing so, agent will not return unrelevent information showing false achievement. If the objective is clearly met the information is returned, if not, nothing is returned.)
 // Step 3: The facts and figures, counter intuitive thoughts, quotes, numbers and the infrormations that indirectly helps achieve the objective is highly encouraged to return. But keep in mind completely unrelevent and unrelated information is not shared at all.
 
-import { callGeminiLLM, SystemInstruction, UserPrompt } from '../ai/providers';
+import { callGeminiLLM, SystemInstruction, ultimateModel, UserPrompt, vercelCerebras } from '../ai/providers';
 import { Part, Schema, SchemaType } from '@google/generative-ai';
 import { ScrapedContent } from '../types';
+import { z } from 'zod';
 
 export interface WebsiteAnalysis extends WebsiteAnalysisResponse {
   websiteUrl: string;
@@ -52,11 +53,7 @@ export class WebsiteAnalyzer {
   constructor() { }
 
   async analyzeContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
-    const systemInstruction: SystemInstruction = {
-      role: 'system',
-      parts: [
-        {
-          text: `
+    const systemPromptText = `
     You are the Website Analysis Agent. Your only task is to analyze the scraped content of a single website in relation to a specific research objective provided to you. You must extract all highly relevant, factual, and verifiable information from the website content that directly supports the objective. Follow these strict instructions step-by-step:
 
     1. **Understand the Objective**: Read the research objective carefully. This objective tells you exactly what information to look for. Only extract information that matches this objective perfectly. Do not consider anything else.
@@ -90,13 +87,8 @@ export class WebsiteAnalyzer {
 
     Current Date: Today is ${new Date().toISOString()}. Use this to ensure the information is time-relevant if the user’s question involves recent information.
 `
-        }
-      ]
-    }
 
-    const userPrompt: Part[] = [
-      {
-        text: `
+    const userPromptText = `
     Analyze the website content from the URL below to extract all highly relevant, factual, and technical information that directly serves the research objective provided. Follow the instructions in the system prompt exactly and return your response in the JSON format specified.
 
     **WEBSITE URL**: ${content.url}
@@ -157,7 +149,20 @@ export class WebsiteAnalyzer {
     6. **Handling Edge Cases**: The prompts address scenarios where content is irrelevant by specifying empty arrays and a false "is_objective_met", ensuring consistency even with no data.
     
     These prompts should enable the Website Analysis Agent to perform its role effectively within your deep research codebase, delivering precise, objective-driven results for each website analyzed.
-      `,
+      `
+
+    const systemInstruction: SystemInstruction = {
+      role: 'system',
+      parts: [
+        {
+          text: systemPromptText,
+        }
+      ]
+    }
+
+    const userPrompt: Part[] = [
+      {
+        text: userPromptText,
       }
     ];
     const userPromptSchema: UserPrompt = {
@@ -165,16 +170,30 @@ export class WebsiteAnalyzer {
     };
 
     try {
-      const { response } = await callGeminiLLM({
-        system: systemInstruction,
-        user: userPromptSchema,
-        model: process.env.WEBSITE_ANALYZING_MODEL as string,
-        generationConfig: {
-          responseSchema: ANALYSIS_SCHEMA
-        }
+      // const { response } = await callGeminiLLM({
+      //   system: systemInstruction,
+      //   user: userPromptSchema,
+      //   model: process.env.WEBSITE_ANALYZING_MODEL as string,
+      //   generationConfig: {
+      //     responseSchema: ANALYSIS_SCHEMA
+      //   }
+      // });
+
+      const response = await ultimateModel({
+        system: systemPromptText,
+        user: userPromptText,
+        schema: z.object({
+          is_objective_met: z.boolean(),
+          core_content: z.array(z.string()),
+          facts_figures: z.array(z.string()),
+          relevance_score: z.number(),
+        }),
       });
 
-      const websiteSummary: WebsiteAnalysisResponse = JSON.parse(response.text());
+
+      const websiteSummary: WebsiteAnalysisResponse = response.object;
+      console.log("Website analyzer token usage", response.usage);
+      // const websiteSummary: WebsiteAnalysisResponse = JSON.parse(response.text());
 
       // We don't want to entirely return null, we want to store it in the database eventhough it has not met the objective. We will show on the frontend under serpquery but we will mark this as "not relevant" on frontend.
       // if (!websiteSummary.is_objective_met) {
