@@ -57,7 +57,7 @@ export class QueryWithObjectives {
         const { researchData, db } = await getLatestResearchFromDB(researchId);
 
 
-        if (researchData.depth > 1 && !parent_query_timestamp) {
+        if (researchData.depth > 1 && parent_query_timestamp === undefined) {
             throw new Error('parent_query_timestamp is required for depth > 1');
         }
 
@@ -170,11 +170,10 @@ export class QueryWithObjectives {
                         queries: z.array(z.object({
                             query: z.string().describe("A 4-15 word string in plain English, designed to return websites from any search engine (e.g., Google, Bing) that directly address a specific part of the user’s question."),
                             objective: z.string().describe("A 5-10 sentence, highly technical description of the exact information to extract from the websites returned by the query.")
-                        })).describe("An array of queries and their corresponding objectives"),
+                        })).length(numQueries).describe("An array of queries and their corresponding objectives"),
                     }),
                     apiKey: process.env.GOOGLE_API_KEY_10 as string
                 });
-
             if (
                 !result?.queries ||
                 !Array.isArray(result.queries) ||

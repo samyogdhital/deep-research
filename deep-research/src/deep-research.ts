@@ -20,90 +20,43 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
   const queryWithObjectives = new QueryWithObjectives(wsManager);
   const websiteAnalyzer = new WebsiteAnalyzer(wsManager);
   const serpQueryAnalyzer = new SerpQueryAnalyzer(wsManager);
-  // Helper function for timestamped logging
-  const logWithTime = (message: string, queryId?: string) => {
-    const timestamp = new Date().toISOString();
-    const queryInfo = queryId ? ` [Query: ${queryId}]` : '';
-    console.log(`[${timestamp}]${queryInfo} ${message}`);
-  };
-
-  // Helper function to calculate expected queries at each depth
-  // const calculateExpectedQueries = (depth: number, breadth: number): number[] => {
-  //   const expectedQueriesPerDepth = new Array(depth).fill(0);
-  //   expectedQueriesPerDepth[0] = breadth; // Depth 1
-  //   let currentBreadth = breadth;
-
-  //   for (let d = 1; d < depth; d++) {
-  //     currentBreadth = Math.ceil(currentBreadth / 2);
-  //     expectedQueriesPerDepth[d] = breadth * currentBreadth;
-  //   }
-
-  //   return expectedQueriesPerDepth;
-  // };
-
-  // Helper function to check if a query is fully complete
-  const isQueryComplete = (query: SerpQuery): boolean => {
-    return query.stage === 'completed' &&
-      query.successful_scraped_websites.length > 0 &&
-      query.successful_scraped_websites.every(w => w.status === 'analyzed');
-  };
-
-  // Helper function to check completion at a depth level
-  const checkDepthCompletion = (queries: SerpQuery[], depthLevel: number, expectedCount: number): boolean => {
-    const queriesAtDepth = queries.filter(q => q.depth_level === depthLevel);
-    const completedQueries = queriesAtDepth.filter(isQueryComplete);
-    return completedQueries.length >= expectedCount;
-  };
-
-  // Calculate expected queries at each depth
-  // const expectedQueriesPerDepth = calculateExpectedQueries(depth, breadth);
-  // logWithTime(`Expected queries per depth: ${JSON.stringify(expectedQueriesPerDepth)}`);
 
   // Process each query - Define this function before using it
   const processQuery = async (currentQuery: SerpQuery): Promise<void> => {
-    // const queryId = currentQuery.query_timestamp.toString();
-    // const startTime = Date.now();
-    // logWithTime(`Starting processing of query at depth ${currentQuery.depth_level}`, queryId);
+    console.log("inside process query")
 
     try {
-      // Step 1: Get search results if not already present
-      if (currentQuery.successful_scraped_websites.length === 0) {
-        // logWithTime(`Fetching search results`, queryId);
-        let searchResults: ScrapedWebsite[];
+      // Step 1: Search the query for getting the websites list.
+      const searxngWebsitesList = await searxng.search({ query: currentQuery.query, researchId, queryTimestamp: currentQuery.query_timestamp, parentQueryTimestamp: currentQuery.parent_query_timestamp })
 
-        const searxngWebsitesList = await searxng.search({ query: currentQuery.query, researchId, queryTimestamp: currentQuery.query_timestamp, parentQueryTimestamp: currentQuery.parent_query_timestamp })
+      const transformedSearchResult = searxngWebsitesList.map((result, index) => ({
+        id: index + 1,
+        url: result.url,
+        title: result.title || result.url,
+        description: result.content || '',
+        status: 'scraping' as const,
+        relevance_score: 0,
+        is_objective_met: false,
+        core_content: [],
+        facts_figures: [],
+      })) as ScrapedWebsite[];
 
-        searchResults = searxngWebsitesList.map((result, index) => ({
-          id: index + 1,
-          url: result.url,
-          title: result.title || result.url,
-          description: result.content || '',
-          status: 'scraping' as const,
-          relevance_score: 0,
-          is_objective_met: false,
-          core_content: [],
-          facts_figures: [],
-        }));
-        // logWithTime(`Found ${searchResults.length} search results`, queryId);
-
-
-        // These will be in deep research file.
-        await db.updateSerpQueryResults({
-          report_id: researchId,
-          queryTimestamp: currentQuery.query_timestamp,
-          parentQueryTimestamp: currentQuery.parent_query_timestamp,
-          successfulWebsites: searchResults,
-          serpQueryStage: 'in-progress'
-        });
-        await wsManager.handleSerpQueryToInProgess(researchId);
-        //--------------------------------
+      // These will be in deep research file.
+      await db.updateSerpQueryResults({
+        report_id: researchId,
+        queryTimestamp: currentQuery.query_timestamp,
+        parentQueryTimestamp: currentQuery.parent_query_timestamp,
+        successfulWebsites: transformedSearchResult,
+        // serpQueryStage: 'in-progress' // you don't need to give it here. We have already set that in the searxng.ts file.
+      });
+      await wsManager.handleSerpQueryToInProgess(researchId);
+      //--------------------------------
 
 
-        const { researchData: updatedDataFromDB } = await getLatestResearchFromDB(researchId);
-        const latestCurrentQuery = updatedDataFromDB.serpQueries.find(q => q.query_timestamp === currentQuery.query_timestamp) as SerpQuery;
-        if (!latestCurrentQuery) throw new Error('Query not found after update');
-        currentQuery = latestCurrentQuery; // I think we are setting latest data on the current query. If somewhere we are referencing it, it will be updated.
-      }
+      const { researchData: updatedDataFromDB } = await getLatestResearchFromDB(researchId);
+      const latestCurrentQuery = updatedDataFromDB.serpQueries.find(q => q.query_timestamp === currentQuery.query_timestamp) as SerpQuery;
+      if (!latestCurrentQuery) throw new Error('Query not found after update');
+      currentQuery = latestCurrentQuery; // I think we are setting latest data on the current query. If somewhere we are referencing it, it will be updated.
       await wsManager.handleAnalyzingSerpQuery(researchId); //Serp query is analyzing now.
 
       const websitesToProcess = currentQuery.successful_scraped_websites.filter(w =>
@@ -121,8 +74,9 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
         currentQuery = latestCurrentQuery; // I think we are setting latest data on the current query. If somewhere we are referencing it, it will be updated.
 
         const analyzedWebsites = currentQuery.successful_scraped_websites.filter(w => w.status === 'analyzed');
+        // Instead of throwing an error when no websites are analyzed, we'll log a warning and continue
         if (analyzedWebsites.length === 0) {
-          throw new Error('No websites were successfully analyzed');
+          console.log(`⚠️ Warning: No websites were successfully analyzed for query: "${currentQuery.query}"`);
         }
 
         // Finally changing this serp query status to completed.
@@ -130,7 +84,7 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
           report_id: researchId,
           queryTimestamp: currentQuery.query_timestamp,
           parentQueryTimestamp: currentQuery.parent_query_timestamp,
-          successfulWebsites: analyzedWebsites,
+          successfulWebsites: currentQuery.successful_scraped_websites, // Use all websites, not just analyzed ones
           serpQueryStage: 'completed'
         });
         await wsManager.handleAnalyzedSerpQuery(researchId);
@@ -163,11 +117,12 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
           currentQuery.query_timestamp
         );
 
-        await Promise.all(childQueries.map(q => processQuery(q)));
+        await Promise.all(childQueries.map(async (q) => {
+          await processQuery(q);
+        }));
       }
 
     } catch (error) {
-      logWithTime(`Error processing query: ${error}`);
       const failedQuery = {
         ...currentQuery,
         stage: 'failed' as const
@@ -182,6 +137,15 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
       await wsManager.handleSerpQueryFailed(researchId);
     }
   };
+
+  const newQueries = await queryWithObjectives.generateQueriesWithObjectives(
+    researchId,
+    0
+  );
+  // console.log("newQueries", newQueries);
+  await Promise.all(newQueries.map(async (query) => {
+    await processQuery(query);
+  }));
 
   // Find incomplete queries at each depth level
   // const incompleteQueries = researchData.serpQueries.filter(q =>
@@ -278,7 +242,6 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
   //   }
   // }
 
-  logWithTime('Research process completed');
 }
 
 export { deepResearch }

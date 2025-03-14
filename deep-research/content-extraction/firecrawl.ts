@@ -5,7 +5,7 @@ import { WebsiteAnalyzer } from '@/src/agent/website-analyzer';
 
 export class Firecrawl {
     private readonly MAX_RETRIES = 2;
-    private readonly SCRAPE_TIMEOUT = 5000; // 10 seconds
+    private readonly SCRAPE_TIMEOUT = 3000; // 3 seconds - slightly longer than the API timeout
 
     constructor(private wsManager: WebSocketManager) { }
 
@@ -18,7 +18,7 @@ export class Firecrawl {
             url,
             formats: ['markdown'],
             onlyMainContent: true,
-            timeout: 30000,
+            timeout: 30000, // 30 seconds timeout for api ok?
             blockAds: true
         };
 

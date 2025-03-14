@@ -66,13 +66,12 @@ export class SearxNG {
 
                 // If we got results, return them immediately
                 if (results.length > 0) {
-
                     await db.updateSerpQueryResults({
                         report_id: researchId,
                         queryTimestamp,
                         parentQueryTimestamp,
                         successfulWebsites: [], // empty array cause we have not scraped any websites from firecrawl yet.
-                        serpQueryStage: 'completed'
+                        serpQueryStage: 'in-progress'
                     });
 
                     // Fire got website from serp query websocket event
@@ -98,7 +97,13 @@ export class SearxNG {
         // If we get here, all attempts failed
         console.log(`❌❌ Searxng failed after ${this.MAX_RETRIES} attempts: ${lastError?.message || 'No results found'}`);
 
-        await db.updateSerpQueryResults(researchId, queryTimestamp, parentQueryTimestamp, [], 'failed'); // mark this query as failed cause could not get any results.
+        await db.updateSerpQueryResults({
+            report_id: researchId,
+            queryTimestamp,
+            parentQueryTimestamp,
+            successfulWebsites: [], // empty array cause we have not scraped any websites from firecrawl yet.
+            serpQueryStage: 'failed'
+        });
         await this.wsManager.handleWebsitesFromSerpQueryFailed(researchId);
 
         throw new Error(`Search failed after ${this.MAX_RETRIES} attempts: ${lastError?.message || 'No results found'}`);

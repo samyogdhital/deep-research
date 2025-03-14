@@ -9,19 +9,19 @@ import { Schema, SchemaType } from '@google/generative-ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 
-const FOLLOWUP_QUESTIONS_SCHEMA: Schema = {
-    type: SchemaType.OBJECT,
-    properties: {
-        questions: {
-            type: SchemaType.ARRAY,
-            items: {
-                type: SchemaType.STRING,
-                description: "A specific follow-up question"
-            }
-        }
-    },
-    required: ["questions"]
-};
+// const FOLLOWUP_QUESTIONS_SCHEMA: Schema = {
+//     type: SchemaType.OBJECT,
+//     properties: {
+//         questions: {
+//             type: SchemaType.ARRAY,
+//             items: {
+//                 type: SchemaType.STRING,
+//                 description: "A specific follow-up question"
+//             }
+//         }
+//     },
+//     required: ["questions"]
+// };
 
 export type PromptAnalyzerOptions = {
     query: string;
@@ -99,7 +99,7 @@ export async function generateFollowUps({ query, numQuestions = 5 }: PromptAnaly
             system: systemPromptText,
             user: userPromptText,
             schema: z.object({
-                questions: z.array(z.string().describe("Followup questions for the user's query.")),
+                questions: z.array(z.string().describe("Followup questions for the user's query.")).length(numQuestions).describe("Followup questions for the user's query."),
                 title: z.string().describe("Title of the report that will be generated from the research.")
             }),
             apiKey: process.env.GOOGLE_API_KEY_1 as string
