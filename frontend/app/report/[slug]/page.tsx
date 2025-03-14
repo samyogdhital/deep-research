@@ -51,7 +51,7 @@ export default async function ReportPage(
     <main className='min-h-screen bg-background'>
       <Suspense fallback={<Loading />}>
         <ReportContent initialData={researchData} reportId={slug} />
-        <ReportChat />
+        {/* <ReportChat /> */}
       </Suspense>
     </main>
   );

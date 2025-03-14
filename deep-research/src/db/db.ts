@@ -24,20 +24,20 @@ export interface DBSchema {
             query_timestamp: number;
             depth_level: number;
             parent_query_timestamp: number;
+            stage: 'in-progress' | 'completed' | 'failed';
             successful_scraped_websites: Array<{
                 id: number;
                 url: string;
                 title: string;
                 description: string;
-                status: 'scraping' | 'analyzing' | 'analyzed' | 'failed';
+                status: 'scraping' | 'scraped' | 'analyzing' | 'analyzed' | 'analysis-failed';
                 relevance_score: number;
                 is_objective_met: boolean;
                 core_content: string[];
                 facts_figures: string[];
             }>;
-            failedWebsites: Array<{
+            scrapeFailedWebsites: Array<{
                 website: string;
-                stage: 'failed';
             }>;
         }>;
         report: {
@@ -160,10 +160,13 @@ class ResearchDB {
     }
 
     async updateSerpQueryResults(
-        report_id: string,
-        queryTimestamp: number,
-        successfulWebsites: ScrapedWebsite[],
-        failedWebsites: DBSchema['researches'][number]['serpQueries'][number]['failedWebsites']
+        { report_id, queryTimestamp, parentQueryTimestamp, successfulWebsites, serpQueryStage }: {
+            report_id: string,
+            queryTimestamp: number,
+            parentQueryTimestamp: number,
+            successfulWebsites: ScrapedWebsite[],
+            serpQueryStage?: 'in-progress' | 'completed' | 'failed'
+        }
     ): Promise<boolean> {
         await this.db.read();
         const research = this.db.data.researches.find(r => r.report_id === report_id);
@@ -171,7 +174,23 @@ class ResearchDB {
         const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
         if (!query) return false;
         query.successful_scraped_websites = successfulWebsites;
-        query.failedWebsites = failedWebsites;
+        if (serpQueryStage) {
+            query.stage = serpQueryStage;
+            query.parent_query_timestamp = parentQueryTimestamp;
+        }
+        await this.db.write();
+        return true;
+    }
+
+    // new function to remove the website from successful_scraped_websites and add to scrapeFailedWebsites
+    async removeWebsiteFromSuccessfulScrapedWebsites(report_id: string, websiteUrl: string): Promise<boolean> {
+        await this.db.read();
+        const research = this.db.data.researches.find(r => r.report_id === report_id);
+        if (!research) return false;
+        const query = research.serpQueries.find(q => q.successful_scraped_websites.some(w => w.url === websiteUrl));
+        if (!query) return false;
+        query.successful_scraped_websites = query.successful_scraped_websites.filter(w => w.url !== websiteUrl);
+        query.scrapeFailedWebsites = [...(query.scrapeFailedWebsites || []), { website: websiteUrl }];
         await this.db.write();
         return true;
     }
@@ -276,15 +295,15 @@ class ResearchDB {
         const research = this.db.data.researches.find(r => r.report_id === report_id);
         if (!research) return false;
 
-        const query = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
-        if (!query) return false;
+        const currentSerpQuery = research.serpQueries.find(q => q.query_timestamp === queryTimestamp);
+        if (!currentSerpQuery) return false;
 
-        const websiteIndex = query.successful_scraped_websites.findIndex(w => w.url === websiteUrl);
+        const websiteIndex = currentSerpQuery.successful_scraped_websites.findIndex(w => w.url === websiteUrl);
         if (websiteIndex === -1) return false;
 
         // Update only the specified fields while preserving required fields
-        const currentWebsite = query.successful_scraped_websites[websiteIndex];
-        query.successful_scraped_websites[websiteIndex] = {
+        const currentWebsite = currentSerpQuery.successful_scraped_websites[websiteIndex];
+        currentSerpQuery.successful_scraped_websites[websiteIndex] = {
             ...currentWebsite,  // Keep all existing required fields
             ...websiteUpdate    // Update with new values
         } as ScrapedWebsite;

@@ -3,13 +3,12 @@
 // Step 2: If the very precise, strategic, exact, accurate and most relevent information is found on the website, it is returned by the agent in the fixed json schema it got. If the information is not found, the agent will return nothing and pass on. (While doing so, agent will not return unrelevent information showing false achievement. If the objective is clearly met the information is returned, if not, nothing is returned.)
 // Step 3: The facts and figures, counter intuitive thoughts, quotes, numbers and the infrormations that indirectly helps achieve the objective is highly encouraged to return. But keep in mind completely unrelevent and unrelated information is not shared at all.
 
-import { callGeminiLLM, SystemInstruction, ultimateModel, UserPrompt, vercelCerebras } from '../ai/providers';
-import { Part, Schema, SchemaType } from '@google/generative-ai';
-import { ScrapedContent } from '../types';
+import { ultimateModel } from '../ai/providers';
 import { z } from 'zod';
-
+import { WebSocketManager } from '../websocket';
+import { getLatestResearchFromDB } from '@/utils/db-utils';
 export interface WebsiteAnalysis extends WebsiteAnalysisResponse {
-  websiteUrl: string;
+  websiteUrl: string; // not used anywhere can be removed.
 }
 
 type WebsiteAnalysisResponse = {
@@ -19,40 +18,49 @@ type WebsiteAnalysisResponse = {
   is_objective_met: boolean;
 }
 
-const ANALYSIS_SCHEMA: Schema = {
-  description: "Short schema of precise conclusion of website analysis agent after analyzing scraped website content with the precise objective of the research given to you.",
-  type: SchemaType.OBJECT,
-  properties: {
-    is_objective_met: {
-      type: SchemaType.BOOLEAN,
-      description: "Does this website content precisely and completely addresses our objective?"
-    },
-    core_content: {
-      type: SchemaType.ARRAY,
-      description: "Array of highly value packed, highly technical information points that completely answer the objective of the query given to you extracted from the website.",
-      items: {
-        type: SchemaType.STRING
-      }
-    },
-    facts_figures: {
-      type: SchemaType.ARRAY,
-      description: "Array of direct quotes that validate the findings",
-      items: {
-        type: SchemaType.STRING
-      }
-    },
-    relevance_score: {
-      type: SchemaType.NUMBER,
-      description: "A score between 0 and 10 indicating the relevance of the content to the objective."
-    }
-  },
-  required: ["is_objective_met", "core_content", "facts_figures", "relevance_score"]
-};
+// const ANALYSIS_SCHEMA: Schema = {
+//   description: "Short schema of precise conclusion of website analysis agent after analyzing scraped website content with the precise objective of the research given to you.",
+//   type: SchemaType.OBJECT,
+//   properties: {
+//     is_objective_met: {
+//       type: SchemaType.BOOLEAN,
+//       description: "Does this website content precisely and completely addresses our objective?"
+//     },
+//     core_content: {
+//       type: SchemaType.ARRAY,
+//       description: "Array of highly value packed, highly technical information points that completely answer the objective of the query given to you extracted from the website.",
+//       items: {
+//         type: SchemaType.STRING
+//       }
+//     },
+//     facts_figures: {
+//       type: SchemaType.ARRAY,
+//       description: "Array of direct quotes that validate the findings",
+//       items: {
+//         type: SchemaType.STRING
+//       }
+//     },
+//     relevance_score: {
+//       type: SchemaType.NUMBER,
+//       description: "A score between 0 and 10 indicating the relevance of the content to the objective."
+//     }
+//   },
+//   required: ["is_objective_met", "core_content", "facts_figures", "relevance_score"]
+// };
 
 export class WebsiteAnalyzer {
-  constructor() { }
+  constructor(private wsManager: WebSocketManager) { }
 
-  async analyzeContent(content: ScrapedContent, objective: string): Promise<WebsiteAnalysis | null> {
+  async analyzeContent({ researchId, query_timestamp, url, content, objective }: { researchId: string; query_timestamp: number; url: string; content: string; objective: string }): Promise<WebsiteAnalysis | null> {
+
+    const { researchData, db } = await getLatestResearchFromDB(researchId);
+
+    const query = researchData.serpQueries.find(q => q.query_timestamp === query_timestamp);
+    if (!query) return null;
+
+    const website = query.successful_scraped_websites.find(w => w.url === url);
+    if (!website) return null;
+
     const systemPromptText = `
     You are the Website Analysis Agent. Your only task is to analyze the scraped content of a single website in relation to a specific research objective provided to you. You must extract all highly relevant, factual, and verifiable information from the website content that directly supports the objective. Follow these strict instructions step-by-step:
 
@@ -91,12 +99,12 @@ export class WebsiteAnalyzer {
     const userPromptText = `
     Analyze the website content from the URL below to extract all highly relevant, factual, and technical information that directly serves the research objective provided. Follow the instructions in the system prompt exactly and return your response in the JSON format specified.
 
-    **WEBSITE URL**: ${content.url}
+    **WEBSITE URL**: ${url}
 
     **OBJECTIVE**: ${objective}
 
     **WEBSITE CONTENT**:
-    ${content.markdown}
+    ${content}
 
     **EXPECTED OUTPUT**:
     Return your analysis as a JSON object with this structure:
@@ -151,61 +159,53 @@ export class WebsiteAnalyzer {
     These prompts should enable the Website Analysis Agent to perform its role effectively within your deep research codebase, delivering precise, objective-driven results for each website analyzed.
       `
 
-    const systemInstruction: SystemInstruction = {
-      role: 'system',
-      parts: [
-        {
-          text: systemPromptText,
-        }
-      ]
-    }
-
-    const userPrompt: Part[] = [
-      {
-        text: userPromptText,
-      }
-    ];
-    const userPromptSchema: UserPrompt = {
-      contents: [{ role: 'user', parts: userPrompt }],
-    };
-
     try {
-      // const { response } = await callGeminiLLM({
-      //   system: systemInstruction,
-      //   user: userPromptSchema,
-      //   model: process.env.WEBSITE_ANALYZING_MODEL as string,
-      //   generationConfig: {
-      //     responseSchema: ANALYSIS_SCHEMA
-      //   }
-      // });
+      await this.wsManager.handleWebsiteAnalyzing(researchId);
 
       const response = await ultimateModel({
         system: systemPromptText,
         user: userPromptText,
         schema: z.object({
-          is_objective_met: z.boolean(),
-          core_content: z.array(z.string()),
-          facts_figures: z.array(z.string()),
-          relevance_score: z.number(),
-        }),
+          is_objective_met: z.boolean().describe("Does this website content precisely and completely addresses our objective?"),
+          core_content: z.array(z.string()).describe("Array of highly value packed, highly technical information points that completely answer the objective of the query given to you extracted from the website."),
+          facts_figures: z.array(z.string()).describe("Array of direct quotes that validate the findings"),
+          relevance_score: z.number().describe("A score between 0 and 10 indicating the relevance of the content to the objective."),
+        }).describe("Short schema of precise conclusion of website analysis agent after analyzing scraped website content with the precise objective of the research given to you."),
       });
 
 
-      const websiteSummary: WebsiteAnalysisResponse = response.object;
+      const analysis = response.object;
       console.log("Website analyzer token usage", response.usage);
-      // const websiteSummary: WebsiteAnalysisResponse = JSON.parse(response.text());
 
-      // We don't want to entirely return null, we want to store it in the database eventhough it has not met the objective. We will show on the frontend under serpquery but we will mark this as "not relevant" on frontend.
-      // if (!websiteSummary.is_objective_met) {
-      //   return null;
-      // }
+      await db.updateWebsiteStatus(
+        researchId,
+        query.query_timestamp,
+        website.url,
+        {
+          status: 'analyzed',
+          relevance_score: analysis.relevance_score,
+          is_objective_met: analysis.is_objective_met,
+          core_content: analysis.core_content,
+          facts_figures: analysis.facts_figures
+        }
+      );
+
+      await this.wsManager.handleWebsiteAnalyzed(researchId);
 
       return {
-        ...websiteSummary,
-        websiteUrl: content.url,
+        ...analysis,
+        websiteUrl: url,
       };
 
     } catch (error) {
+      console.error("Error analyzing website content", error);
+      db.updateWebsiteStatus(
+        researchId,
+        query.query_timestamp,
+        website.url,
+        { status: 'analysis-failed' }
+      );
+      await this.wsManager.handleWebsiteAnalysisFailed(researchId);
       return null;
     }
   }

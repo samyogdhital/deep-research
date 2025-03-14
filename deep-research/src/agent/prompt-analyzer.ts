@@ -85,7 +85,7 @@ export async function generateFollowUps({ query, numQuestions = 5 }: PromptAnaly
         "Question 2",
         ...
         ],
-        "title": "5-7 word Title of the report that will be given to this research understanding the user's query."
+        "title": "5-7 word Title of the report that will be given to this research understanding the user's query. E.g. 'Data Centers in Space'"
     }
 
     Do not include any explanations, additional text, or commentary outside the JSON object.

@@ -59,7 +59,7 @@ export class WebSocketManager {
         }
     }
 
-    // Research Start Process Events
+    // Research Initialization Events
     async handleGeneratingFollowups(report_id: string): Promise<void> {
         await this.emitEvent('generating_followups', report_id);
     }
@@ -75,7 +75,7 @@ export class WebSocketManager {
         this.io.emit('active_researches', Array.from(this.activeResearchIds));
     }
 
-    // Information Gathering Process Events
+    // SERP Query Events
     async handleNewSerpQuery(report_id: string): Promise<void> {
         await this.emitEvent('new_serp_query', report_id);
     }
@@ -84,19 +84,14 @@ export class WebSocketManager {
         await this.emitEvent('got_websites_from_serp_query', report_id);
     }
 
-    async handleWebsiteScraping(report_id: string, website: WebsiteStatus): Promise<void> {
-        await this.emitEvent('scraping_a_website', report_id);
+    async handleWebsitesFromSerpQueryFailed(report_id: string): Promise<void> {
+        await this.emitEvent('websites_from_serp_query_failed', report_id);
     }
 
-    async handleWebsiteAnalyzing(report_id: string, website: WebsiteStatus): Promise<void> {
-        await this.emitEvent('analyzing_a_website', report_id);
+    async handleSerpQueryToInProgess(report_id: string): Promise<void> {
+        await this.emitEvent('serp_query_in_progress', report_id);
     }
 
-    async handleWebsiteAnalyzed(report_id: string, website: WebsiteStatus): Promise<void> {
-        await this.emitEvent('analyzed_a_website', report_id);
-    }
-
-    // SERP Query Analysis Events
     async handleAnalyzingSerpQuery(report_id: string): Promise<void> {
         await this.emitEvent('analyzing_serp_query', report_id);
     }
@@ -105,7 +100,36 @@ export class WebSocketManager {
         await this.emitEvent('analyzed_serp_query', report_id);
     }
 
-    // Report Writing Process Events
+    async handleSerpQueryFailed(report_id: string): Promise<void> {
+        await this.emitEvent('serp_query_failed', report_id);
+    }
+
+    // Website Processing Events
+    async handleWebsiteScraping(report_id: string): Promise<void> {
+        await this.emitEvent('scraping_a_website', report_id);
+    }
+
+    async handleWebsiteScraped(report_id: string): Promise<void> {
+        await this.emitEvent('scraped_a_website', report_id);
+    }
+
+    async handleWebsiteScrapingFailed(report_id: string): Promise<void> {
+        await this.emitEvent('scraping_a_website_failed', report_id);
+    }
+
+    async handleWebsiteAnalyzing(report_id: string): Promise<void> {
+        await this.emitEvent('analyzing_a_website', report_id);
+    }
+
+    async handleWebsiteAnalyzed(report_id: string): Promise<void> {
+        await this.emitEvent('analyzed_a_website', report_id);
+    }
+
+    async handleWebsiteAnalysisFailed(report_id: string): Promise<void> {
+        await this.emitEvent('individual_website_analysis_failed', report_id);
+    }
+
+    // Report Generation Events
     async handleReportWritingStart(report_id: string): Promise<void> {
         await this.emitEvent('report_writing_start', report_id);
     }
@@ -117,7 +141,7 @@ export class WebSocketManager {
         this.io.emit('active_researches', Array.from(this.activeResearchIds));
     }
 
-    // Error Handling - Special case, doesn't send research data
+    // Error Handling Events
     handleResearchError(error: Error, report_id?: string) {
         console.error('Research error:', error);
 
@@ -139,7 +163,7 @@ export class WebSocketManager {
         }
     }
 
-    // Clear all active researches
+    // Utility Events
     clearAllActiveResearches() {
         this.activeResearchIds.clear();
         this.io.emit('active_researches', []);

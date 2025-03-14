@@ -12,6 +12,7 @@ import { LuLoaderCircle } from 'react-icons/lu';
 import { TbAnalyzeFilled } from 'react-icons/tb';
 import { HiCheck } from 'react-icons/hi';
 import { MdOutlineClose } from 'react-icons/md';
+import { BsFileEarmarkCheck } from 'react-icons/bs';
 
 interface QuerySheetProps {
   query: SerpQuery;
@@ -70,6 +71,12 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
                         <span className='text-sm'>Scraping</span>
                       </div>
                     )}
+                    {website.status === 'scraped' && (
+                      <div className='flex items-center text-emerald-500 dark:text-emerald-400 whitespace-nowrap'>
+                        <BsFileEarmarkCheck className='w-5 h-5 mr-1 flex-shrink-0' />
+                        <span className='text-sm'>Scraped</span>
+                      </div>
+                    )}
                     {website.status === 'analyzing' && (
                       <div className='flex items-center text-blue-500 dark:text-blue-400 whitespace-nowrap'>
                         <TbAnalyzeFilled className='w-5 h-5 mr-1 flex-shrink-0 animate-spin' />
@@ -122,28 +129,39 @@ export function QuerySheet({ query, onOpenChange }: QuerySheetProps) {
           </div>
 
           {/* Failed Websites */}
-          {query.failedWebsites && query.failedWebsites.length > 0 && (
-            <div className='mt-8'>
-              <div className='flex items-center gap-2 mb-3'>
-                <XCircleIcon className='w-5 h-5 text-red-500 flex-shrink-0' />
-                <h3 className='text-sm font-medium text-gray-500 dark:text-gray-400'>
-                  Failed Websites
-                </h3>
+          {query.scrapeFailedWebsites &&
+            query.scrapeFailedWebsites.length > 0 && (
+              <div className='mt-8 border-t dark:border-gray-800 pt-6'>
+                <div className='flex items-center gap-2 mb-3'>
+                  <XCircleIcon className='w-5 h-5 text-red-500 flex-shrink-0' />
+                  <h3 className='text-sm font-medium text-gray-500 dark:text-gray-400'>
+                    Failed Websites ({query.scrapeFailedWebsites.length})
+                  </h3>
+                </div>
+                <ul className='space-y-2 text-sm text-gray-500 dark:text-gray-400 ml-6'>
+                  {query.scrapeFailedWebsites.map((failedWebsite, index) => (
+                    <li key={index} className='list-disc break-all'>
+                      <a
+                        href={failedWebsite.website}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        className='hover:text-blue-500 dark:hover:text-blue-400 hover:underline'
+                      >
+                        {failedWebsite.website}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className='space-y-2 text-sm text-gray-500 dark:text-gray-400 ml-6'>
-                {query.failedWebsites.map((failedWebsite, index) => (
-                  <li key={index} className='list-disc break-all'>
-                    <a
-                      href={failedWebsite.website}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      className='hover:text-blue-500 dark:hover:text-blue-400 hover:underline'
-                    >
-                      {failedWebsite.website}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+            )}
+
+          {/* Query Failed State */}
+          {query.stage === 'failed' && (
+            <div className='mt-8 border-t dark:border-gray-800 pt-6'>
+              <div className='flex items-center gap-2 text-red-500 dark:text-red-400'>
+                <XCircleIcon className='w-5 h-5 flex-shrink-0' />
+                <span className='text-sm font-medium'>Query Failed</span>
+              </div>
             </div>
           )}
         </div>

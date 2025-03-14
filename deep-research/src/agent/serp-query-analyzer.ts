@@ -1,69 +1,32 @@
 import { Part, Schema, SchemaType } from '@google/generative-ai';
 import { callGeminiLLM, SystemInstruction, ultimateModel, UserPrompt } from '../ai/providers';
-import { DBSchema } from '../db/db';
+import { DBSchema, ResearchDB } from '../db/db';
 import { ScrapedContent } from '../types';
 import { z } from 'zod';
+import { WebSocketManager } from '../websocket';
+import { getLatestResearchFromDB } from '@/utils/db-utils';
 
 type SerpQueryAnalysis = DBSchema['researches'][number]['serpQueries'][number];
 
+// This agent is used to analyze the all the list of successfully scraped websites in relation to a specific search query and objective with a single call of SerpQueryAnalyzer and then saves the data it generates for each of these websites in a defined schema in the database. This is only used when the is_deep_research is false. This is not used in case of deep research. It is only used in non deep research.
 export class SerpQueryAnalyzer {
-    constructor() { }
+    constructor(private wsManager: WebSocketManager) { }
 
     async analyzeSerpQuery(params: {
+        researchId: string,
         contents: ScrapedContent[],
         query: string,
         objective: string,
         query_timestamp: number,
         depth_level: number,
         parent_query_timestamp: number,
-        failedWebsites?: Array<{ website: string; stage: 'failed' }>
+        stage: 'in-progress' | 'completed' | 'failed',
+        // failedWebsites: DBSchema['researches'][number]['serpQueries'][number]['scrapeFailedWebsites']
     }): Promise<SerpQueryAnalysis> {
-        const { contents, query, objective, query_timestamp, depth_level, parent_query_timestamp, failedWebsites = [] } = params;
+        const { contents, query, objective, query_timestamp, depth_level, parent_query_timestamp, researchId } = params;
 
-        const responseSchema: Schema = {
-            type: SchemaType.ARRAY,
-            description: "Array of website analysis results, one for each website provided in the content",
-            items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                    url: {
-                        type: SchemaType.STRING,
-                        description: "The URL of the website being analyzed"
-                    },
-                    title: {
-                        type: SchemaType.STRING,
-                        description: "The title of the website"
-                    },
-                    description: {
-                        type: SchemaType.STRING,
-                        description: "A brief description of the website content"
-                    },
-                    relevance_score: {
-                        type: SchemaType.NUMBER,
-                        description: "A score between 0 and 10 indicating how relevant the content is to the objective"
-                    },
-                    is_objective_met: {
-                        type: SchemaType.BOOLEAN,
-                        description: "Whether this website's content directly addresses the research objective"
-                    },
-                    core_content: {
-                        type: SchemaType.ARRAY,
-                        description: "Array of highly technical, relevant information points extracted from the website",
-                        items: {
-                            type: SchemaType.STRING
-                        }
-                    },
-                    facts_figures: {
-                        type: SchemaType.ARRAY,
-                        description: "Array of direct quotes, statistics, and factual evidence from the website",
-                        items: {
-                            type: SchemaType.STRING
-                        }
-                    }
-                },
-                required: ["url", "title", "description", "relevance_score", "is_objective_met", "core_content", "facts_figures"]
-            }
-        };
+        const { researchData, db } = await getLatestResearchFromDB(researchId);
+
         const systemPrompt = `
 You are the SERP Query Analysis Agent. Your task is to analyze multiple website contents simultaneously in relation to a specific search query and its objective. You must extract all relevant information from each website and structure it according to our database schema.
 
@@ -135,27 +98,8 @@ Return an ARRAY where each element represents one website's analysis, following 
 
 IMPORTANT: Your response MUST include an analysis for EVERY website in the input, even if some seem less relevant.
 `
-        // const systemInstruction: SystemInstruction = {
-        //     role: 'system',
-        //     parts: [{
-        //         text: systemPrompt
-        //     }]
-        // };
-        // const userPromptSchema: UserPrompt = {
-        //     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        // };
 
         try {
-            // const { response } = await callGeminiLLM({
-            //     system: systemInstruction,
-            //     user: userPromptSchema,
-            //     model: process.env.SERP_QUERY_ANALYZING_MODEL as string,
-            //     generationConfig: {
-            //         temperature: 0.1,
-            //         responseSchema: responseSchema
-            //     }
-            // });
-
             const response = await ultimateModel({
                 system: systemPrompt,
                 user: userPrompt,
@@ -173,15 +117,7 @@ IMPORTANT: Your response MUST include an analysis for EVERY website in the input
 
 
             // Parse the LLM response
-            const websiteAnalyses = response.object as Array<{
-                url: string;
-                title: string;
-                description: string;
-                relevance_score: number;
-                is_objective_met: boolean;
-                core_content: string[];
-                facts_figures: string[];
-            }>;
+            const websiteAnalyses = response.object
 
             // Transform the response into the required database schema format
             const successful_scraped_websites = websiteAnalyses.map((analysis, index: number) => ({
@@ -195,6 +131,14 @@ IMPORTANT: Your response MUST include an analysis for EVERY website in the input
                 core_content: analysis.core_content,
                 facts_figures: analysis.facts_figures
             }));
+            await db.updateSerpQueryResults({
+                report_id: researchId,
+                queryTimestamp: query_timestamp,
+                parentQueryTimestamp: parent_query_timestamp,
+                successfulWebsites: successful_scraped_websites,
+                serpQueryStage: 'completed'
+            });
+            await this.wsManager.handleAnalyzedSerpQuery(researchId);
 
             return {
                 query,
@@ -202,8 +146,9 @@ IMPORTANT: Your response MUST include an analysis for EVERY website in the input
                 query_timestamp,
                 depth_level,
                 parent_query_timestamp,
+                stage: 'completed' as const,
                 successful_scraped_websites,
-                failedWebsites: failedWebsites
+                scrapeFailedWebsites: [] //just for the sake of making typescript happy. 
             };
         } catch (error) {
             console.error('Error in SerpQueryAnalyzer:', error);
@@ -215,18 +160,19 @@ IMPORTANT: Your response MUST include an analysis for EVERY website in the input
                 query_timestamp,
                 depth_level,
                 parent_query_timestamp,
+                stage: 'failed' as const,
                 successful_scraped_websites: contents.map((content, index) => ({
                     id: index + 1,
                     url: content.url,
                     title: content.url,
                     description: '',
-                    status: 'failed' as const,
+                    status: 'analysis-failed' as const,
                     relevance_score: 0,
                     is_objective_met: false,
                     core_content: [],
                     facts_figures: []
                 })),
-                failedWebsites: failedWebsites
+                scrapeFailedWebsites: [] //just for the sake of making typescript happy. 
             };
         }
     }

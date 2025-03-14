@@ -8,6 +8,7 @@ import { ReportWriter } from './src/agent/report-writer';
 import { WebSocketManager } from './src/websocket';
 import { config as envConfig } from 'dotenv';
 import { DBSchema } from './src/db/db';
+import { SerpQuery } from './src/db/schema';
 
 envConfig();
 const app = express();
@@ -158,18 +159,56 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
         try {
             // If SERP queries are incomplete, resume deep research
-            // if (completedQueries < totalExpectedQueries) {
             await wsManager.handleResearchStart(report_id);
             await deepResearch(report_id, Boolean(is_deep_research), wsManager);
-            // }
 
-            // Get fresh data before report generation
-            const freshResearchData = await db.getResearchData(report_id);
+            // Get fresh data and verify ALL queries at ALL depths are complete
+            let freshResearchData = await db.getResearchData(report_id);
             if (!freshResearchData) {
                 throw new Error('Research data not found when trying to generate report');
             }
 
-            // Start report generation
+            // Calculate if we have all expected queries at each depth level
+            let totalExpectedQueries = breadth;
+            let currentBreadth = breadth;
+            let expectedQueriesPerDepth = new Array(depth).fill(0);
+            expectedQueriesPerDepth[0] = breadth; // Depth 1
+
+            // Calculate expected queries at each depth
+            for (let d = 1; d < depth; d++) {
+                currentBreadth = Math.ceil(currentBreadth / 2);
+                expectedQueriesPerDepth[d] = currentBreadth * breadth;
+                totalExpectedQueries += expectedQueriesPerDepth[d];
+            }
+
+            // Check if we have all queries and they're all completed
+            const queriesByDepth: SerpQuery[][] = new Array(depth).fill(0).map(() => []);
+            for (const query of freshResearchData.serpQueries) {
+                if (query.depth_level <= depth) {
+                    queriesByDepth[query.depth_level - 1].push(query);
+                }
+            }
+
+            // Verify each depth has enough completed queries
+            let needsMoreProcessing = false;
+            for (let d = 0; d < depth; d++) {
+                const completedQueriesAtDepth = queriesByDepth[d].filter(q => q.stage === 'completed').length;
+                if (completedQueriesAtDepth < expectedQueriesPerDepth[d]) {
+                    needsMoreProcessing = true;
+                    break;
+                }
+            }
+
+            // If we need more processing, continue deep research
+            if (needsMoreProcessing) {
+                await deepResearch(report_id, Boolean(is_deep_research), wsManager);
+                freshResearchData = await db.getResearchData(report_id);
+                if (!freshResearchData) {
+                    throw new Error('Research data not found after additional processing');
+                }
+            }
+
+            // Start report generation only when ALL queries at ALL depths are complete
             await wsManager.handleReportWritingStart(report_id);
 
             // Set initial report status to in-progress
@@ -355,87 +394,62 @@ app.post('/api/resume', async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Calculate if all SERP queries are complete
+        // Calculate total expected queries based on depth and breadth
         let totalExpectedQueries = research.breadth;
         let currentBreadth = research.breadth;
         for (let depth = 2; depth <= research.depth; depth++) {
             currentBreadth = Math.ceil(currentBreadth / 2);
-            totalExpectedQueries += (totalExpectedQueries * currentBreadth);
+            totalExpectedQueries += (research.breadth * currentBreadth);
         }
 
-        const completedQueries = research.serpQueries.filter(q =>
-            q.successful_scraped_websites.some(w => w.status === 'analyzed')
-        ).length;
+        // Find the last depth level that has any failed or in-progress queries
+        let lastIncompleteDepth = 1;
+        const incompleteQueries = research.serpQueries.filter(q =>
+            q.stage === 'failed' ||
+            q.stage === 'in-progress' ||
+            q.successful_scraped_websites.some(w => w.status !== 'analyzed')
+        );
 
+        if (incompleteQueries.length > 0) {
+            lastIncompleteDepth = Math.max(...incompleteQueries.map(q => q.depth_level));
+        }
 
+        // For each depth level up to lastIncompleteDepth
+        for (let depth = 1; depth <= lastIncompleteDepth; depth++) {
+            const queriesAtDepth = research.serpQueries.filter(q => q.depth_level === depth);
+            const expectedQueriesAtDepth = depth === 1 ? research.breadth :
+                Math.ceil(research.breadth / Math.pow(2, depth - 1));
 
-        try {
-            // If SERP queries are incomplete, resume deep research
-            if (completedQueries < totalExpectedQueries) {
+            // If we don't have enough queries at this depth, generate more
+            if (queriesAtDepth.length < expectedQueriesAtDepth) {
                 await wsManager.handleResearchStart(report_id);
-                await deepResearch(report_id, false, wsManager);
+                await deepResearch(report_id, true, wsManager);
+                res.json({ status: 'resumed', message: 'Research resumed successfully' });
+                return;
             }
 
-            // Get fresh data and generate report
-            const freshResearchData = await db.getResearchData(report_id);
-            if (!freshResearchData) {
-                throw new Error('Research data not found when trying to generate report');
+            // Check each query at this depth
+            for (const query of queriesAtDepth) {
+                // If query is failed or has failed/in-progress websites
+                if (query.stage === 'failed' ||
+                    query.stage === 'in-progress' ||
+                    query.successful_scraped_websites.some(w => w.status !== 'analyzed')) {
+                    await wsManager.handleResearchStart(report_id);
+                    await deepResearch(report_id, true, wsManager);
+                    res.json({ status: 'resumed', message: 'Research resumed successfully' });
+                    return;
+                }
             }
-
-            // Generate report if it failed or doesn't exist
-            if (!freshResearchData.report || freshResearchData.report.status === 'failed') {
-                await wsManager.handleReportWritingStart(report_id);
-
-                const reportWriter = new ReportWriter();
-                const report = await reportWriter.generateReport({
-                    db_research_data: freshResearchData,
-                    wsManager: wsManager
-                });
-
-                await db.saveReport(report_id, {
-                    title: freshResearchData.report?.title || '',
-                    // sections: report.sections,
-                    // citedUrls: report.citedUrls,
-                    content: report,
-                    isVisited: false,
-                    timestamp: Date.now(),
-                    status: 'completed'
-                });
-
-                await wsManager.handleReportWritingComplete(report_id);
-            }
-
-            res.json(await db.getResearchData(report_id));
-
-        } catch (error) {
-            console.error('Error in resumed research:', error);
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-            await db.saveReport(report_id, {
-                title: (await db.getResearchData(report_id))?.report.title || 'Failed Report',
-                //          sections: [],
-                // citedUrls: [],
-                content: '',
-                isVisited: false,
-                timestamp: Date.now(),
-                status: 'failed'
-            });
-
-            wsManager.handleResearchError(new Error(errorMessage), report_id);
-            res.status(500).json({
-                error: 'Research resume failed',
-                details: errorMessage
-            });
         }
+
+        // If we get here, all queries are complete and successful
+        res.json({ status: 'complete', message: 'All queries are complete' });
 
     } catch (error) {
         console.error('Error in resume endpoint:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        wsManager.handleResearchError(new Error(errorMessage));
-        res.status(500).json({
-            error: 'Resume failed',
-            details: errorMessage
-        });
+        wsManager.handleResearchError(new Error(errorMessage), req.body.report_id);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 

@@ -1,6 +1,6 @@
 import { GenerateContentRequest, GenerateContentResult, GenerativeModel, GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, ModelParams } from '@google/generative-ai';
 import PQueue from 'p-queue';
-import { generateObject, GenerateObjectResult, LanguageModel, Schema } from 'ai';
+import { generateObject, GenerateObjectResult, generateText, GenerateTextResult, LanguageModel, Schema, ToolSet } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { createMistral } from '@ai-sdk/mistral';
@@ -23,6 +23,32 @@ export interface AIProvider {
   ): Promise<GenerateContentResult>;
 }
 
+const googleSafetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  // {
+  //   category: HarmCategory.HARM_CATEGORY_UNSPECIFIED,
+  //   threshold: HarmBlockThreshold.BLOCK_NONE,
+  // },
+]
 
 
 class GeminiProvider implements AIProvider {
@@ -62,32 +88,7 @@ class GeminiProvider implements AIProvider {
             temperature: 0.5,
             ...params.generationConfig,
           },
-          safetySettings: [
-            {
-              category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            // {
-            //   category: HarmCategory.HARM_CATEGORY_UNSPECIFIED,
-            //   threshold: HarmBlockThreshold.BLOCK_NONE,
-            // },
-          ],
+          safetySettings: googleSafetySettings,
         });
 
         return await model.generateContent(params.user);
@@ -175,80 +176,6 @@ const provider = ModelProvider.getInstance().getCurrentProvider();
 export const callGeminiLLM = (params: GenerateObjectParams) =>
   queue.add(() => provider.generateObject(params)) as Promise<GenerateContentResult>;
 
-
-
-
-// import { Cohere, CohereClientV2 } from "cohere-ai";
-// import { ChatResponse, JsonResponseFormat } from 'cohere-ai/api';
-// const cohereClient = new CohereClientV2({
-//   token: "ME98yNtI71dgClRu3YaED7tq1LhKiiRdIhsbDjUt",
-// });
-
-// export const cohere = async ({ system, user, responseFormat }: { system: string, user: string, responseFormat: Cohere.ResponseFormatV2 }): Promise<ChatResponse> => {
-//   return cohereClient.chat({
-//     model: "command-r-plus",
-//     messages: [
-//       {
-//         role: "system",
-//         content: system,
-//       },
-//       {
-//         role: "user",
-//         content: [
-//           {
-//             type: "text",
-//             text: user,
-//           }
-//         ],
-//       }
-//     ],
-//     responseFormat: responseFormat
-//   })
-// };
-
-
-
-// const groqClient = new Groq({
-//   apiKey: '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',
-// });
-// export const groq = async ({ system, user, responseSchema }: { system: string, user: string, responseSchema: object }): Promise<ChatCompletion> => {
-//   return groqClient.chat.completions.create({
-//     messages: [
-//       { role: 'system', content: system + `\n Please follow this json schema: ${JSON.stringify(responseSchema)}` },
-//       { role: 'user', content: user }
-//     ],
-//     model: 'llama-3.3-70b-versatile',
-//     response_format: {
-//       type: "json_object",
-//     },
-//   });
-// }
-
-// const mistralClient = new Mistral({ apiKey: "iR3yjx5aSCHhW6zFjIHgNlAGYaqXgLaN" });
-// export const mistral = async ({ system, user, responseSchema: responseSchema }: { system: string, user: string, responseSchema: object }) => {
-//   return mistralClient.chat.complete({
-//     messages: [{ role: 'system', content: system + `\n Please follow this json schema: ${JSON.stringify(responseSchema)}` }, { role: 'user', content: user }],
-//     model: 'mistral-large-latest',
-//     responseFormat: {
-//       type: "json_object",
-//     }
-//   });
-// }
-
-
-
-// const google = createGoogleGenerativeAI({
-//   apiKey: 'AIzaSyB3rOnlPl5E4WFQxd5p-DNrZmZx8ONw7GA' as string,
-
-// })
-
-// const model = google("gemini-2.0-flash", {
-//   structuredOutputs: true
-// })
-
-// Keep track of current API key index
-let currentKeyIndex = 0;
-
 // Create a shared queue for all vercelGemini calls
 const vercelGeminiQueue = new PQueue({
   concurrency: 20,
@@ -278,12 +205,29 @@ vercelGeminiQueue.on('completed', (result) => {
   console.log('✅ Vercel Gemini API call completed successfully');
 });
 
+
+export async function geminiText({ system, user, model, apiKey }: { system: string; user: string; model: string; apiKey: string }): Promise<GenerateTextResult<ToolSet, unknown>> {
+  const google = createGoogleGenerativeAI({
+    apiKey: apiKey || process.env.GOOGLE_API_KEY_10
+  });
+
+  const geminiModel = google(model, {
+    safetySettings: googleSafetySettings,
+  });
+
+  return generateText({
+    model: geminiModel,
+    system: system,
+    prompt: user,
+  });
+}
+
 export async function vercelGemini<OBJECT>({ model, system, user, schema, apiKey, structuredOutputs = true }: {
   model: string;
   system: string;
   user: string;
   schema: z.Schema<OBJECT, z.ZodTypeDef, any> | Schema<OBJECT>;
-  apiKey: string;
+  apiKey?: string;
   structuredOutputs?: boolean;
 }): Promise<GenerateObjectResult<OBJECT>> {
   const google = createGoogleGenerativeAI({
@@ -292,28 +236,7 @@ export async function vercelGemini<OBJECT>({ model, system, user, schema, apiKey
 
   const geminiModel = google(model, {
     structuredOutputs: structuredOutputs,
-    safetySettings: [
-      {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-      },
-    ]
+    safetySettings: googleSafetySettings,
   });
 
   return await generateObject({

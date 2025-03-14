@@ -13,7 +13,13 @@
     "noEmit": false,
     "noEmitOnError": false,
     "allowJs": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "@/*": ["./*"],
+      "@deep-research/*": ["./src/*"],
+      "@utils/*": ["./utils/*"],
+      "@content-extraction/*": ["./content-extraction/*"]
+    }
   },
   "include": ["src/**/*", "content-extraction/**/*", "server.ts"],
   "exclude": ["node_modules", "dist"]

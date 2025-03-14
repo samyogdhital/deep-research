@@ -6,7 +6,7 @@
 
 // Step 3: Report from middle-report-agent is passed here along with all the learnings and conclusions we got and made during the deep research process. The report from both of these initial and middle report agent is also passed here. The user's initial query is also passed here and made sure that this final report is not missing any important infomration if it is present on the internet answering the precise question the user has asked.
 
-import { SystemInstruction, vercelGemini } from '../ai/providers';
+import { geminiText, SystemInstruction, vercelGemini } from '../ai/providers';
 import { encode } from 'gpt-tokenizer';
 import { DBSchema } from '../db/db';
 import { WebSocketManager } from '../websocket';
@@ -196,40 +196,11 @@ export class ReportWriter {
             //     structuredOutputs: false
             // });
 
-            const google = createGoogleGenerativeAI({
-                apiKey: process.env.GOOGLE_API_KEY_10
-            });
 
-            const geminiModel = google(process.env.RESEARCH_WRITING_MODEL as string, {
-                safetySettings: [
-                    {
-                        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                        threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    {
-                        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                        threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    {
-                        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                        threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    {
-                        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                        threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    {
-                        category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-                        threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                ]
-            });
-
-
-            const { text } = await generateText({
-                model: geminiModel,
+            const { text } = await geminiText({
+                model: process.env.RESEARCH_WRITING_MODEL as string,
                 system: systemPrompt,
-                prompt: userPromptOnly
+                user: userPromptOnly
             })
 
             const content = text;

@@ -46,7 +46,11 @@ export function RealtimeView({
   const [researchData, setResearchData] = useState<ResearchData>(initialData);
   const [reportStatus, setReportStatus] = useState<
     'no-start' | 'in-progress' | 'completed' | 'failed'
-  >(initialData.report?.status || 'no-start');
+  >(
+    initialData.report?.status === 'not-started'
+      ? 'no-start'
+      : initialData.report?.status || 'no-start'
+  );
 
   // Core state
   const [isDragging, setIsDragging] = useState(false);
@@ -224,7 +228,10 @@ export function RealtimeView({
     // Group data update events
     [
       'new_serp_query',
+      'got_websites_from_serp_query',
       'scraping_a_website',
+      'scraped_a_website',
+      'scraping_a_website_failed',
       'analyzing_a_website',
       'analyzed_a_website',
       'analyzing_serp_query',
@@ -234,6 +241,12 @@ export function RealtimeView({
         // Only update state if the event is for the current research
         if (report_id === browser_report_id) {
           handleData(data);
+
+          // Log the event for debugging
+          console.log(`Received websocket event: ${event}`, {
+            report_id,
+            timestamp: new Date().toISOString(),
+          });
         }
       })
     );
