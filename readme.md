@@ -1,3 +1,5 @@
+[![Demo Video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](demo-video.mov)
+
 Installation of this mega project.
 
 First setup db if you are running through docker. create a new database folder and have researches.json file inside it.
