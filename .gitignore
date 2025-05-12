@@ -5,3 +5,5 @@ screenshots/
 .cursor
 database/
 deep-research/dist/
+
+searxng/settings.yml.new

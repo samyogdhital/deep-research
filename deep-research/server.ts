@@ -158,54 +158,22 @@ app.post('/api/research/start', async (req: Request, res: Response): Promise<voi
 
 
         try {
-            // If SERP queries are incomplete, resume deep research
-            await wsManager.handleResearchStart(report_id);
-            await deepResearch(report_id, Boolean(is_deep_research), wsManager);
-
             // Get fresh data and verify ALL queries at ALL depths are complete
             let freshResearchData = await db.getResearchData(report_id);
             if (!freshResearchData) {
                 throw new Error('Research data not found when trying to generate report');
             }
 
-            // Calculate if we have all expected queries at each depth level
-            let totalExpectedQueries = breadth;
-            let currentBreadth = breadth;
-            let expectedQueriesPerDepth = new Array(depth).fill(0);
-            expectedQueriesPerDepth[0] = breadth; // Depth 1
+            // Notify frontend that research is starting
+            await wsManager.handleResearchStart(report_id);
 
-            // Calculate expected queries at each depth
-            for (let d = 1; d < depth; d++) {
-                currentBreadth = Math.ceil(currentBreadth / 2);
-                expectedQueriesPerDepth[d] = currentBreadth * breadth;
-                totalExpectedQueries += expectedQueriesPerDepth[d];
-            }
+            // Start the deep research process - this will now wait for ALL queries at ALL depths to complete
+            await deepResearch(report_id, Boolean(is_deep_research), wsManager);
 
-            // Check if we have all queries and they're all completed
-            const queriesByDepth: SerpQuery[][] = new Array(depth).fill(0).map(() => []);
-            for (const query of freshResearchData.serpQueries) {
-                if (query.depth_level <= depth) {
-                    queriesByDepth[query.depth_level - 1].push(query);
-                }
-            }
-
-            // Verify each depth has enough completed queries
-            let needsMoreProcessing = false;
-            for (let d = 0; d < depth; d++) {
-                const completedQueriesAtDepth = queriesByDepth[d].filter(q => q.stage === 'completed').length;
-                if (completedQueriesAtDepth < expectedQueriesPerDepth[d]) {
-                    needsMoreProcessing = true;
-                    break;
-                }
-            }
-
-            // If we need more processing, continue deep research
-            if (needsMoreProcessing) {
-                await deepResearch(report_id, Boolean(is_deep_research), wsManager);
-                freshResearchData = await db.getResearchData(report_id);
-                if (!freshResearchData) {
-                    throw new Error('Research data not found after additional processing');
-                }
+            // Get the updated research data after all queries have completed
+            freshResearchData = await db.getResearchData(report_id);
+            if (!freshResearchData) {
+                throw new Error('Research data not found after deep research');
             }
 
             // Start report generation only when ALL queries at ALL depths are complete

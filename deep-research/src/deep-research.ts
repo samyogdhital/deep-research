@@ -21,6 +21,9 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
   const websiteAnalyzer = new WebsiteAnalyzer(wsManager);
   const serpQueryAnalyzer = new SerpQueryAnalyzer(wsManager);
 
+  // Track all running query promises to ensure we wait for all of them
+  const runningQueries: Promise<void>[] = [];
+
   // Process each query - Define this function before using it
   const processQuery = async (currentQuery: SerpQuery): Promise<void> => {
     console.log("inside process query")
@@ -111,15 +114,19 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
 
       // Generate and process child queries if not at max depth
       if (currentQuery.depth_level < depth) {
-
         const childQueries = await queryWithObjectives.generateQueriesWithObjectives(
           researchId,
           currentQuery.query_timestamp
         );
 
-        await Promise.all(childQueries.map(async (q) => {
-          await processQuery(q);
-        }));
+        // Process child queries in parallel and track them
+        const childPromises = childQueries.map(async (q) => {
+          const childPromise = processQuery(q);
+          runningQueries.push(childPromise);
+          return childPromise;
+        });
+
+        await Promise.all(childPromises);
       }
 
     } catch (error) {
@@ -138,110 +145,26 @@ async function deepResearch(researchId: string, is_deep_research: boolean, wsMan
     }
   };
 
+  // Generate top-level queries (depth 1)
   const newQueries = await queryWithObjectives.generateQueriesWithObjectives(
     researchId,
-    0
+    0  // parent_query_timestamp of 0 indicates top-level queries
   );
-  // console.log("newQueries", newQueries);
-  await Promise.all(newQueries.map(async (query) => {
-    await processQuery(query);
-  }));
 
-  // Find incomplete queries at each depth level
-  // const incompleteQueries = researchData.serpQueries.filter(q =>
-  //   q.stage === 'failed' ||
-  //   q.stage === 'in-progress' ||
-  //   q.successful_scraped_websites.some(w => w.status !== 'analyzed')
-  // );
+  // Process top-level queries in parallel and track them
+  const topLevelPromises = newQueries.map(async (query) => {
+    const queryPromise = processQuery(query);
+    runningQueries.push(queryPromise);
+    return queryPromise;
+  });
 
-  // Find the last depth level that has any failed or in-progress queries
-  // let lastIncompleteDepth = 1;
-  // if (incompleteQueries.length > 0) {
-  //   lastIncompleteDepth = Math.max(...incompleteQueries.map(q => q.depth_level));
-  //   logWithTime(`Found incomplete queries up to depth ${lastIncompleteDepth}`);
-  // }
+  // Wait for top-level queries to complete
+  await Promise.all(topLevelPromises);
 
-  // If no incomplete queries, generate and parallelize top-level queries
-  // if (incompleteQueries.length === 0) {
-  //   const topLevelQueries = researchData.serpQueries.filter(q => q.depth_level === 1);
-  //   if (topLevelQueries.length < breadth) {
-  //     logWithTime(`Generating ${breadth - topLevelQueries.length} top-level queries`);
+  // Wait for all running queries to complete (including child queries)
+  await Promise.all(runningQueries);
 
-  //     // Generate initial top-level queries
-  //     const newQueries = await queryWithObjectives.generateQueriesWithObjectives(
-  //       researchId,
-  //       1,
-  //       0
-  //     );
-
-  //     // Create all queries first
-  //     const serpQueries: SerpQuery[] = [];
-  //     for (const query of newQueries) {
-  //       const serpQuery: SerpQuery = {
-  //         ...query,
-  //         depth_level: 1,
-  //         successful_scraped_websites: [],
-  //         scrapeFailedWebsites: [],
-  //         parent_query_timestamp: 0,
-  //         stage: 'in-progress'
-  //       };
-  //       serpQueries.push(serpQuery);
-  //     }
-
-  //     // Save all queries to DB
-  //     for (const query of serpQueries) {
-  //       await db.addSerpQuery(researchId, query);
-  //       await wsManager.handleNewSerpQuery(researchId);
-  //       logWithTime(`Created top-level query: "${query.query}"`, query.query_timestamp.toString());
-  //     }
-
-  //     // Start processing all queries in parallel
-  //     logWithTime(`Starting parallel processing of ${serpQueries.length} top-level queries`);
-  //     await Promise.all(serpQueries.map(q => processQuery(q)));
-  //   }
-  // }
-
-  // // Process all incomplete queries in parallel
-  // const freshResearchData = await db.getResearchData(researchId);
-  // if (!freshResearchData) throw new Error('Research data not found');
-
-  // // Check each depth level up to lastIncompleteDepth
-  // for (let currentDepth = 1; currentDepth <= lastIncompleteDepth; currentDepth++) {
-  //   const queriesAtDepth = freshResearchData.serpQueries.filter(q => q.depth_level === currentDepth);
-  //   const expectedCount = expectedQueriesPerDepth[currentDepth - 1];
-
-  //   // If we don't have enough queries at this depth
-  //   if (queriesAtDepth.length < expectedCount) {
-  //     logWithTime(`Depth ${currentDepth} has ${queriesAtDepth.length} queries, expected ${expectedCount}`);
-  //     // This will be handled by the normal query processing flow
-  //     continue;
-  //   }
-
-  //   // Check for incomplete queries at this depth
-  //   const incompleteQueriesAtDepth = queriesAtDepth.filter(q => !isQueryComplete(q));
-  //   if (incompleteQueriesAtDepth.length > 0) {
-  //     logWithTime(`Processing ${incompleteQueriesAtDepth.length} incomplete queries at depth ${currentDepth}`);
-  //     await Promise.all(incompleteQueriesAtDepth.map(processQuery));
-  //   }
-  // }
-
-  // // Final check to ensure all depths are complete
-  // const finalResearchData = await db.getResearchData(researchId);
-  // if (!finalResearchData) throw new Error('Research data not found');
-
-  // for (let d = 0; d < depth; d++) {
-  //   const isComplete = checkDepthCompletion(
-  //     finalResearchData.serpQueries,
-  //     d + 1,
-  //     expectedQueriesPerDepth[d]
-  //   );
-  //   if (!isComplete) {
-  //     logWithTime(`Depth ${d + 1} is not complete`);
-  //     // Instead of restarting, we'll just log and continue
-  //     continue;
-  //   }
-  // }
-
+  console.log("All queries at all depths have completed. Research process is finished.");
 }
 
 export { deepResearch }

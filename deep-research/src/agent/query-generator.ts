@@ -66,12 +66,32 @@ export class QueryWithObjectives {
             throw new Error('Research data not found');
         }
 
-        const numQueries = calculateQueriesAtDepth(researchData.depth, researchData.breadth, researchData.depth).totalQueriesAtDepth;
-        console.log("generating queries for depth", researchData.depth, "with numQueries", numQueries, "with breadth", researchData.breadth);
+        // Determine the current depth level based on parent_query_timestamp
+        let current_depth_level = 1; // Default to depth 1 for top-level queries
+
+        if (parent_query_timestamp && parent_query_timestamp > 0) {
+            // Find the parent query to determine its depth level
+            const parentQuery = researchData.serpQueries.find(q => q.query_timestamp === parent_query_timestamp);
+            if (parentQuery) {
+                // Child queries are one level deeper than their parent
+                current_depth_level = parentQuery.depth_level + 1;
+            }
+        }
+
+        // For top-level queries (depth 1), use the breadth
+        // For child queries, use queriesPerParent from calculateQueriesAtDepth
+        let numQueries: number;
+        if (current_depth_level === 1) {
+            numQueries = researchData.breadth;
+        } else {
+            numQueries = calculateQueriesAtDepth(researchData.depth, researchData.breadth, current_depth_level).queriesPerParent;
+        }
+
+        console.log("generating queries for depth", current_depth_level, "with numQueries", numQueries, "with breadth", researchData.breadth);
 
         const structuredPrompt = generateContextforSerpQueryGeneratorAgent(
             researchData,
-            researchData.depth,// current_depth_level,
+            current_depth_level,
             parent_query_timestamp || 0 // Safe to pass 0 for depth 1 as it won't be used
         );
 
@@ -127,22 +147,22 @@ export class QueryWithObjectives {
 
     Base all queries and objectives solely on the provided context, without introducing external knowledge or assumptions.
 
-    Current Date: Today is ${new Date().toISOString()}. Use this to ensure queries and objectives are time-relevant if the user’s question involves recent information.
+    Current Date: Today is ${new Date().toISOString()}. Use this to ensure queries and objectives are time-relevant if the user's question involves recent information.
 
 `
         const userPrompt = `
     ### User Prompt
-    Using the research context provided below, generate exactly ${numQueries} search queries and their corresponding objectives to retrieve websites that will 100% contain the precise, detailed answers to the user’s research question.
+    Using the research context provided below, generate exactly ${numQueries} search queries and their corresponding objectives to retrieve websites that will 100% contain the precise, detailed answers to the user's research question.
 
     CONTEXT:
     ${structuredPrompt}
 
     Instructions:
-    Each query must be a 4-15 word string in plain English, designed to return websites from any search engine (e.g., Google, Bing) that directly address a specific part of the user’s question.
+    Each query must be a 4-15 word string in plain English, designed to return websites from any search engine (e.g., Google, Bing) that directly address a specific part of the user's question.
 
     Each objective must be a 5-10 sentence, highly technical description of the exact information to extract from the websites returned by the query.
 
-    Ensure the ${numQueries} queries collectively cover all key aspects, subtopics, and nuances of the user’s question as outlined in the context.
+    Ensure the ${numQueries} queries collectively cover all key aspects, subtopics, and nuances of the user's question as outlined in the context.
 
     For deeper research levels, use previous learnings to target unexplored areas or deeper details, avoiding overlap with past queries.
 
@@ -168,7 +188,7 @@ export class QueryWithObjectives {
                     model: process.env.QUERY_GENERATING_MODEL as string,
                     schema: z.object({
                         queries: z.array(z.object({
-                            query: z.string().describe("A 4-15 word string in plain English, designed to return websites from any search engine (e.g., Google, Bing) that directly address a specific part of the user’s question."),
+                            query: z.string().describe("A 4-15 word string in plain English, designed to return websites from any search engine (e.g., Google, Bing) that directly address a specific part of the user's question."),
                             objective: z.string().describe("A 5-10 sentence, highly technical description of the exact information to extract from the websites returned by the query.")
                         })).length(numQueries).describe("An array of queries and their corresponding objectives"),
                     }),
@@ -190,7 +210,7 @@ export class QueryWithObjectives {
                     ...query,
                     query_timestamp: Date.now() + index,
                     parent_query_timestamp: parent_query_timestamp || 0,
-                    depth_level: researchData.depth,// current_depth_level,
+                    depth_level: current_depth_level,
                     stage: 'in-progress' as const,
                     successful_scraped_websites: [],
                     scrapeFailedWebsites: [],
