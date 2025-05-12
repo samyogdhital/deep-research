@@ -1,4 +1,4 @@
-[![Demo Video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](demo-video.mov)
+[![Demo Video](thumbnail-demo-video.png)](https://youtu.be/9SzWWZ51inM)
 
 Installation of this mega project.
 
